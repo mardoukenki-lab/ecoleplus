@@ -1,0 +1,115 @@
+rules_version = '2';
+service cloud.firestore {
+  match /databases/{database}/documents {
+    
+    function isAuthenticated() {
+      return request.auth != null;
+    }
+
+    function hasUserDoc() {
+      return isAuthenticated() && exists(/databases/$(database)/documents/users/$(request.auth.uid));
+    }
+
+    function getUserData() {
+      return get(/databases/$(database)/documents/users/$(request.auth.uid)).data;
+    }
+
+    function isAdmin() {
+      return isAuthenticated() && (
+        ('email' in request.auth.token && request.auth.token.email != null && request.auth.token.email.lower() in ['admin@ecoleplus.ci', 'direction@ecoleplus.ci', 'mardoukenki@gmail.com']) ||
+        (hasUserDoc() && 'role' in getUserData() && getUserData().role == 'admin')
+      );
+    }
+
+    function isActiveUser() {
+      return isAuthenticated() && (
+        isAdmin() || 
+        (hasUserDoc() && 'status' in getUserData() && getUserData().status == 'active')
+      );
+    }
+
+    function isProf() {
+      return isAuthenticated() && (
+        isAdmin() ||
+        (hasUserDoc() && 'role' in getUserData() && getUserData().role == 'prof')
+      );
+    }
+
+    // Users collection
+    match /users/{userId} {
+      allow read: if isAuthenticated();
+      allow create: if isAuthenticated();
+      allow update: if isAuthenticated() && (request.auth.uid == userId || isAdmin());
+      allow delete: if isAdmin();
+    }
+
+    // Eleves: Authenticated read, Admin write
+    match /eleves/{docId} {
+      allow read: if isAuthenticated();
+      allow write: if isAdmin();
+    }
+
+    // Paiements: Authenticated read, Admin write
+    match /paiements/{docId} {
+      allow read: if isAuthenticated();
+      allow write: if isAdmin();
+    }
+
+    // Notes: Authenticated read, Admin/Prof write
+    match /notes/{docId} {
+      allow read: if isAuthenticated();
+      allow write: if isProf();
+    }
+
+    // Absences: Authenticated read, Admin/Prof write
+    match /absences/{docId} {
+      allow read: if isAuthenticated();
+      allow write: if isProf();
+    }
+
+    // Annonces: Authenticated read, Admin/Prof write
+    match /annonces/{docId} {
+      allow read: if isAuthenticated();
+      allow write: if isProf();
+    }
+
+    // Cahier_texte: Authenticated read, Admin/Prof write
+    match /cahier_texte/{docId} {
+      allow read: if isAuthenticated();
+      allow write: if isProf();
+    }
+
+    // Notifications: Authenticated read & write
+    match /notifications/{docId} {
+      allow read: if isAuthenticated();
+      allow write: if isAuthenticated();
+    }
+
+    // SMS_queue: Authenticated read & write
+    match /sms_queue/{docId} {
+      allow read: if isAuthenticated();
+      allow write: if isAuthenticated();
+    }
+
+    // Messages: Authenticated read & write
+    match /messages/{docId} {
+      allow read: if isAuthenticated();
+      allow write: if isAuthenticated();
+    }
+
+    // Schedules (Emploi du temps): Authenticated read, Admin/Prof write
+    match /schedules/{docId} {
+      allow read: if isAuthenticated();
+      allow write: if isProf();
+    }
+
+    // Classes collection: Authenticated read, Admin write
+    match /classes/{docId} {
+      allow read: if isAuthenticated();
+      allow write: if isAdmin();
+    }
+  }
+}
+
+
+

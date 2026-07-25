@@ -1,0 +1,389 @@
+{
+  "entities": {
+    "users": {
+      "title": "User",
+      "description": "Represents a system user (Admin, Prof, or Parent) with their registration status.",
+      "type": "object",
+      "properties": {
+        "uid": {
+          "type": "string",
+          "description": "The Firebase Authentication UID."
+        },
+        "nom": {
+          "type": "string",
+          "description": "Full name of the user."
+        },
+        "email": {
+          "type": "string",
+          "description": "Email address used for logging in."
+        },
+        "role": {
+          "type": "string",
+          "enum": ["admin", "prof", "parent"],
+          "description": "The user role."
+        },
+        "status": {
+          "type": "string",
+          "enum": ["pending", "active", "refused"],
+          "description": "Approval status by the administrator."
+        },
+        "tel": {
+          "type": "string",
+          "description": "Phone number."
+        },
+        "matiere": {
+          "type": "string",
+          "description": "Subject taught (for teachers only)."
+        },
+        "etablissement": {
+          "type": "string",
+          "description": "School name."
+        },
+        "enfants": {
+          "type": "array",
+          "description": "List of associated children (for parents only)."
+        },
+        "createdAt": {
+          "type": "string",
+          "format": "date-time",
+          "description": "Creation timestamp."
+        }
+      },
+      "required": ["uid", "nom", "email", "role", "status", "tel", "createdAt"]
+    },
+    "eleves": {
+      "title": "Eleve",
+      "description": "Represents a student enrolled in the school.",
+      "type": "object",
+      "properties": {
+        "id": {
+          "type": "string",
+          "description": "Unique identifier of the student."
+        },
+        "nom": {
+          "type": "string",
+          "description": "Full name of the student."
+        },
+        "classe": {
+          "type": "string",
+          "description": "Associated class (e.g., 6e A)."
+        },
+        "code": {
+          "type": "string",
+          "description": "Unique association code (ELV-XXXX)."
+        },
+        "parentUid": {
+          "type": "string",
+          "description": "UID of the linked parent user."
+        },
+        "parentNom": {
+          "type": "string",
+          "description": "Name of the linked parent."
+        },
+        "createdAt": {
+          "type": "string",
+          "format": "date-time",
+          "description": "Creation timestamp."
+        }
+      },
+      "required": ["id", "nom", "classe", "code", "createdAt"]
+    },
+    "notes": {
+      "title": "Note",
+      "description": "Represents a grade/mark entered for a student by a teacher.",
+      "type": "object",
+      "properties": {
+        "id": {
+          "type": "string",
+          "description": "Unique note identifier."
+        },
+        "eleveId": {
+          "type": "string",
+          "description": "Reference to the student."
+        },
+        "eleveNom": {
+          "type": "string",
+          "description": "Name of the student."
+        },
+        "classe": {
+          "type": "string",
+          "description": "Class code."
+        },
+        "matiere": {
+          "type": "string",
+          "description": "Subject."
+        },
+        "devoir1": {
+          "type": "number",
+          "description": "Mark for homework/devoir 1 (0 to 20)."
+        },
+        "devoir2": {
+          "type": "number",
+          "description": "Mark for homework/devoir 2 (0 to 20)."
+        },
+        "compo": {
+          "type": "number",
+          "description": "Mark for trimester composition exam (0 to 20)."
+        },
+        "trimestre": {
+          "type": "string",
+          "description": "Trimester name (e.g., Trimestre 1)."
+        },
+        "createdAt": {
+          "type": "string",
+          "format": "date-time",
+          "description": "Creation timestamp."
+        },
+        "updatedAt": {
+          "type": "string",
+          "format": "date-time",
+          "description": "Update timestamp."
+        }
+      },
+      "required": ["id", "eleveId", "eleveNom", "classe", "matiere", "trimestre", "createdAt", "updatedAt"]
+    },
+    "absences": {
+      "title": "Absence",
+      "description": "Represents a roll call attendance record (absence or lateness).",
+      "type": "object",
+      "properties": {
+        "id": {
+          "type": "string",
+          "description": "Unique identifier."
+        },
+        "eleveId": {
+          "type": "string",
+          "description": "Student reference."
+        },
+        "eleveNom": {
+          "type": "string",
+          "description": "Student name."
+        },
+        "classe": {
+          "type": "string",
+          "description": "Class code."
+        },
+        "matiere": {
+          "type": "string",
+          "description": "Subject of the course."
+        },
+        "profNom": {
+          "type": "string",
+          "description": "Teacher who conducted the roll call."
+        },
+        "date": {
+          "type": "string",
+          "description": "Date of occurrence (YYYY-MM-DD)."
+        },
+        "heure": {
+          "type": "string",
+          "description": "Time of class (e.g., 10h15)."
+        },
+        "statut": {
+          "type": "string",
+          "enum": ["absent", "present", "retard", "justifie"],
+          "description": "Attendance status."
+        },
+        "createdAt": {
+          "type": "string",
+          "format": "date-time",
+          "description": "Record timestamp."
+        }
+      },
+      "required": ["id", "eleveId", "eleveNom", "classe", "matiere", "profNom", "date", "heure", "statut", "createdAt"]
+    },
+    "cahier_texte": {
+      "title": "CahierTexte",
+      "description": "Represents an entry in the digital lesson journal including homework assigned.",
+      "type": "object",
+      "properties": {
+        "id": {
+          "type": "string",
+          "description": "Entry identifier."
+        },
+        "classe": {
+          "type": "string",
+          "description": "Target class."
+        },
+        "date": {
+          "type": "string",
+          "description": "Date of the entry."
+        },
+        "cours": {
+          "type": "string",
+          "description": "Topic or content taught."
+        },
+        "devoirs": {
+          "type": "string",
+          "description": "Homework assigned."
+        },
+        "profNom": {
+          "type": "string",
+          "description": "Name of the teacher."
+        },
+        "createdAt": {
+          "type": "string",
+          "format": "date-time",
+          "description": "Record timestamp."
+        }
+      },
+      "required": ["id", "classe", "date", "cours", "profNom", "createdAt"]
+    },
+    "paiements": {
+      "title": "Paiement",
+      "description": "Represents the tuition fees and payment status of a student.",
+      "type": "object",
+      "properties": {
+        "id": {
+          "type": "string",
+          "description": "Student ID."
+        },
+        "eleveId": {
+          "type": "string",
+          "description": "Student reference."
+        },
+        "eleveNom": {
+          "type": "string",
+          "description": "Student name."
+        },
+        "classe": {
+          "type": "string",
+          "description": "Class code."
+        },
+        "total": {
+          "type": "number",
+          "description": "Total tuition fees."
+        },
+        "paye": {
+          "type": "number",
+          "description": "Amount paid."
+        },
+        "solde": {
+          "type": "number",
+          "description": "Amount remaining to pay."
+        },
+        "echeance": {
+          "type": "string",
+          "description": "Deadline date (e.g., 30 Janvier 2025)."
+        },
+        "historique": {
+          "type": "array",
+          "description": "Payment history log list."
+        }
+      },
+      "required": ["id", "eleveId", "eleveNom", "classe", "total", "paye", "solde", "echeance", "historique"]
+    },
+    "annonces": {
+      "title": "Annonce",
+      "description": "Represents an announcement broadcasted to users.",
+      "type": "object",
+      "properties": {
+        "id": {
+          "type": "string",
+          "description": "Announcement identifier."
+        },
+        "destinataire": {
+          "type": "string",
+          "description": "Target audience (e.g., Tous, Parents, Profs)."
+        },
+        "objet": {
+          "type": "string",
+          "description": "Subject/Title."
+        },
+        "message": {
+          "type": "string",
+          "description": "Content body."
+        },
+        "date": {
+          "type": "string",
+          "description": "Publication date string."
+        },
+        "vues": {
+          "type": "number",
+          "description": "Count of views."
+        },
+        "createdAt": {
+          "type": "string",
+          "format": "date-time",
+          "description": "Timestamp."
+        }
+      },
+      "required": ["id", "destinataire", "objet", "message", "date", "vues", "createdAt"]
+    },
+    "notifications": {
+      "title": "Notification",
+      "description": "Represents an alert notification sent to a parent or user.",
+      "type": "object",
+      "properties": {
+        "id": {
+          "type": "string",
+          "description": "Notification unique identifier."
+        },
+        "userUid": {
+          "type": "string",
+          "description": "Recipient user UID, or 'all'."
+        },
+        "icon": {
+          "type": "string",
+          "description": "Icon (e.g., emoji or lucide-react name)."
+        },
+        "bg": {
+          "type": "string",
+          "description": "Tailwind color class for the icon background."
+        },
+        "text": {
+          "type": "string",
+          "description": "Alert message text."
+        },
+        "time": {
+          "type": "string",
+          "description": "Relative time string (e.g. 'il y a 5 min')."
+        },
+        "unread": {
+          "type": "boolean",
+          "description": "Whether the notification is unread."
+        },
+        "createdAt": {
+          "type": "string",
+          "format": "date-time",
+          "description": "Timestamp."
+        }
+      },
+      "required": ["id", "userUid", "icon", "bg", "text", "time", "unread", "createdAt"]
+    }
+  },
+  "firestore": {
+    "users/{userId}": {
+      "schema": { "$ref": "users" },
+      "description": "User profiles for auth and role mapping."
+    },
+    "eleves/{eleveId}": {
+      "schema": { "$ref": "eleves" },
+      "description": "Pupil roster records."
+    },
+    "notes/{noteId}": {
+      "schema": { "$ref": "notes" },
+      "description": "Marks/Grades list."
+    },
+    "absences/{absenceId}": {
+      "schema": { "$ref": "absences" },
+      "description": "Pupil absence and attendance tracking entries."
+    },
+    "cahier_texte/{cahierId}": {
+      "schema": { "$ref": "cahier_texte" },
+      "description": "Cahier de texte journal entries."
+    },
+    "paiements/{paiementId}": {
+      "schema": { "$ref": "paiements" },
+      "description": "Fee status per student."
+    },
+    "annonces/{annonceId}": {
+      "schema": { "$ref": "annonces" },
+      "description": "School announcement messages."
+    },
+    "notifications/{notifId}": {
+      "schema": { "$ref": "notifications" },
+      "description": "Real-time list of notifications."
+    }
+  }
+}

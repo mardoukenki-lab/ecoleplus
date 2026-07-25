@@ -1,0 +1,6 @@
+{
+  "name": "ÉcolePlus",
+  "description": "Plateforme de gestion scolaire intelligente avec authentification sécurisée et suivi des élèves.",
+  "requestFramePermissions": [],
+  "majorCapabilities": ["MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"]
+}

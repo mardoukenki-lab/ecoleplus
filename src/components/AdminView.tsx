@@ -1038,11 +1038,11 @@ export default function AdminView({ user, onLogout, showToast }: AdminViewProps)
         </header>
 
         {/* CONTENT */}
-        <main className="flex-1 overflow-y-auto p-8">
+        <main className="flex-1 overflow-y-auto p-4 md:p-8 pb-24 md:pb-8">
           {activeTab === 'dashboard' && (
-            <div className="space-y-8">
+            <div className="space-y-6 md:space-y-8">
               {/* Stats Grid */}
-              <div className="grid grid-cols-4 gap-6">
+              <div className="grid grid-cols-2 lg:grid-cols-4 gap-3 md:gap-6">
                 <div className="bg-white rounded-[24px] p-5 border border-[#e0e0e0] shadow-sm flex items-center gap-4">
                   <div className="w-10 h-10 rounded-xl bg-[#f5f5f5] text-[#1a1a1a] flex items-center justify-center text-lg">🎒</div>
                   <div>
@@ -1146,9 +1146,9 @@ export default function AdminView({ user, onLogout, showToast }: AdminViewProps)
               </div>
 
               {/* Layout Split */}
-              <div className="grid grid-cols-3 gap-6">
+              <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
                 {/* Recent Absences Table */}
-                <div className="col-span-2 bg-white rounded-[24px] border border-[#e0e0e0] shadow-sm overflow-hidden">
+                <div className="lg:col-span-2 bg-white rounded-[24px] border border-[#e0e0e0] shadow-sm overflow-hidden">
                   <div className="px-5 py-4 border-b border-[#e0e0e0] font-bold text-[10px] text-[#9e9e9e] uppercase tracking-widest bg-[#f5f5f5]/30">
                     Absences récentes
                   </div>
@@ -2593,6 +2593,116 @@ export default function AdminView({ user, onLogout, showToast }: AdminViewProps)
                 </div>
               </div>
             )}
+          </div>
+        </div>
+      )}
+
+      {/* MOBILE BOTTOM NAVIGATION BAR */}
+      <div className="md:hidden fixed bottom-0 inset-x-0 bg-white border-t border-[#e0e0e0] flex justify-around items-center py-2 z-40 shadow-lg px-1">
+        <button
+          onClick={() => setActiveTab('dashboard')}
+          className={`flex flex-col items-center gap-0.5 text-[10px] font-bold ${activeTab === 'dashboard' ? 'text-[#1a1a1a]' : 'text-[#9e9e9e]'}`}
+        >
+          <span className="text-base">📊</span>
+          <span>Bord</span>
+        </button>
+        <button
+          onClick={() => setActiveTab('eleves')}
+          className={`flex flex-col items-center gap-0.5 text-[10px] font-bold ${activeTab === 'eleves' ? 'text-[#1a1a1a]' : 'text-[#9e9e9e]'}`}
+        >
+          <span className="text-base">🎒</span>
+          <span>Élèves</span>
+        </button>
+        <button
+          onClick={() => setActiveTab('professeurs')}
+          className={`flex flex-col items-center gap-0.5 text-[10px] font-bold ${activeTab === 'professeurs' ? 'text-[#1a1a1a]' : 'text-[#9e9e9e]'}`}
+        >
+          <span className="text-base">👨‍🏫</span>
+          <span>Profs</span>
+        </button>
+        <button
+          onClick={() => setActiveTab('validation')}
+          className={`flex flex-col items-center gap-0.5 text-[10px] font-bold relative ${activeTab === 'validation' ? 'text-[#1a1a1a]' : 'text-[#9e9e9e]'}`}
+        >
+          <span className="text-base">✅</span>
+          <span>Valid.</span>
+          {pendingUsers.length > 0 && (
+            <span className="absolute -top-1 right-1 bg-red-600 text-white text-[8px] font-bold px-1 rounded-full">
+              {pendingUsers.length}
+            </span>
+          )}
+        </button>
+        <button
+          onClick={() => setIsMobilePlusMenuOpen(!isMobilePlusMenuOpen)}
+          className={`flex flex-col items-center gap-0.5 text-[10px] font-bold ${isMobilePlusMenuOpen ? 'text-[#1a1a1a]' : 'text-[#9e9e9e]'}`}
+        >
+          <span className="text-base">⚙️</span>
+          <span>Plus</span>
+        </button>
+      </div>
+
+      {/* MOBILE PLUS DRAWER MENU */}
+      {isMobilePlusMenuOpen && (
+        <div className="md:hidden fixed inset-0 bg-black/50 z-50 flex flex-col justify-end">
+          <div className="bg-white rounded-t-3xl p-6 space-y-4 max-h-[80vh] overflow-y-auto animate-in slide-in-from-bottom">
+            <div className="flex items-center justify-between border-b border-[#e0e0e0] pb-3">
+              <h3 className="font-bold text-sm text-[#1a1a1a]">Menu Administration</h3>
+              <button onClick={() => setIsMobilePlusMenuOpen(false)} className="p-1 text-[#9e9e9e] hover:text-[#1a1a1a]">
+                <X size={18} />
+              </button>
+            </div>
+            <div className="grid grid-cols-2 gap-2 text-xs font-semibold">
+              <button
+                onClick={() => { setActiveTab('classes'); setIsMobilePlusMenuOpen(false); }}
+                className="p-3 bg-[#f5f5f5] hover:bg-[#1a1a1a] hover:text-white rounded-xl text-left"
+              >
+                🏛️ Classes & Matières
+              </button>
+              <button
+                onClick={() => { setActiveTab('emploi'); setIsMobilePlusMenuOpen(false); }}
+                className="p-3 bg-[#f5f5f5] hover:bg-[#1a1a1a] hover:text-white rounded-xl text-left"
+              >
+                📅 Emploi du temps
+              </button>
+              <button
+                onClick={() => { setActiveTab('bulletins'); setIsMobilePlusMenuOpen(false); }}
+                className="p-3 bg-[#f5f5f5] hover:bg-[#1a1a1a] hover:text-white rounded-xl text-left"
+              >
+                📑 Bulletins
+              </button>
+              <button
+                onClick={() => { setActiveTab('paiements'); setIsMobilePlusMenuOpen(false); }}
+                className="p-3 bg-[#f5f5f5] hover:bg-[#1a1a1a] hover:text-white rounded-xl text-left"
+              >
+                💳 Frais scolaires
+              </button>
+              <button
+                onClick={() => { setActiveTab('annonces'); setIsMobilePlusMenuOpen(false); }}
+                className="p-3 bg-[#f5f5f5] hover:bg-[#1a1a1a] hover:text-white rounded-xl text-left"
+              >
+                📢 Annonces
+              </button>
+              <button
+                onClick={() => { setActiveTab('audit'); setIsMobilePlusMenuOpen(false); }}
+                className="p-3 bg-[#f5f5f5] hover:bg-[#1a1a1a] hover:text-white rounded-xl text-left"
+              >
+                📋 Journal Audit
+              </button>
+              <button
+                onClick={() => { setActiveTab('messagerie'); setIsMobilePlusMenuOpen(false); }}
+                className="p-3 bg-[#f5f5f5] hover:bg-[#1a1a1a] hover:text-white rounded-xl text-left col-span-2"
+              >
+                💬 Messagerie Directe
+              </button>
+            </div>
+            <div className="pt-2 border-t border-[#e0e0e0] flex items-center justify-between">
+              <button
+                onClick={onLogout}
+                className="text-xs font-bold text-gray-700 flex items-center gap-1 py-2"
+              >
+                <LogOut size={14} /> Déconnexion
+              </button>
+            </div>
           </div>
         </div>
       )}

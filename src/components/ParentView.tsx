@@ -298,40 +298,43 @@ export default function ParentView({ user, onLogout, showToast }: ParentViewProp
       {/* MAIN LAYOUT */}
       <div className="flex-1 flex flex-col overflow-hidden">
         {/* HEADER */}
-        <header className="bg-white border-b border-[#e0e0e0] h-16 flex items-center px-8 justify-between flex-shrink-0">
-          <div className="flex items-center gap-5">
-            <h2 className="font-sans font-semibold text-[#1a1a1a] text-base tracking-tight">
-              {activeTab === 'dashboard' && 'Suivi de l\'élève'}
-              {activeTab === 'resultats' && 'Relevé de notes détaillé'}
-              {activeTab === 'presence' && 'Registre de ponctualité'}
-              {activeTab === 'emploi' && 'Grille horaire hebdomadaire'}
-              {activeTab === 'observations' && 'Dossier & Observations de l\'élève'}
-              {activeTab === 'paiements' && 'Frais scolaires & Comptabilité'}
-              {activeTab === 'notifications' && 'Historique de notifications'}
-            </h2>
+        <header className="bg-white border-b border-[#e0e0e0] min-h-16 py-2 px-4 md:px-8 flex items-center justify-between flex-shrink-0">
+          <div className="flex items-center gap-3 min-w-0">
+            <div className="md:hidden w-8 h-8 bg-[#1a1a1a] text-white rounded-lg flex items-center justify-center font-bold text-xs flex-shrink-0">EP</div>
+            <div className="flex flex-col sm:flex-row sm:items-center gap-1 sm:gap-3 min-w-0">
+              <h2 className="font-sans font-semibold text-[#1a1a1a] text-xs sm:text-base tracking-tight truncate">
+                {activeTab === 'dashboard' && 'Suivi de l\'élève'}
+                {activeTab === 'resultats' && 'Relevé de notes détaillé'}
+                {activeTab === 'presence' && 'Registre de ponctualité'}
+                {activeTab === 'emploi' && 'Grille horaire hebdomadaire'}
+                {activeTab === 'observations' && 'Dossier & Observations'}
+                {activeTab === 'paiements' && 'Frais scolaires & Comptabilité'}
+                {activeTab === 'notifications' && 'Historique de notifications'}
+              </h2>
 
-            {/* Kids Switcher tabs inside header */}
-            {user.enfants && user.enfants.length > 1 && (
-              <div className="flex bg-[#f5f5f5] p-1 rounded-xl gap-1 border border-[#e0e0e0]">
-                {user.enfants.map((enf, idx) => (
-                  <button
-                    key={idx}
-                    onClick={() => handleKidSwitch(idx)}
-                    className={`px-3 py-1 rounded-lg text-[10px] font-bold tracking-tight transition-all cursor-pointer ${
-                      selectedKidIdx === idx ? 'bg-white text-[#1a1a1a] shadow-sm' : 'text-[#9e9e9e] hover:text-[#1a1a1a]'
-                    }`}
-                  >
-                    {enf.nom}
-                  </button>
-                ))}
-              </div>
-            )}
+              {/* Kids Switcher tabs inside header */}
+              {user.enfants && user.enfants.length > 1 && (
+                <div className="flex bg-[#f5f5f5] p-0.5 rounded-xl gap-1 border border-[#e0e0e0] flex-shrink-0">
+                  {user.enfants.map((enf, idx) => (
+                    <button
+                      key={idx}
+                      onClick={() => handleKidSwitch(idx)}
+                      className={`px-2 py-0.5 rounded-lg text-[9px] sm:text-[10px] font-bold tracking-tight transition-all cursor-pointer ${
+                        selectedKidIdx === idx ? 'bg-white text-[#1a1a1a] shadow-sm' : 'text-[#9e9e9e] hover:text-[#1a1a1a]'
+                      }`}
+                    >
+                      {enf.nom}
+                    </button>
+                  ))}
+                </div>
+              )}
+            </div>
           </div>
 
-          <div className="flex items-center gap-4">
+          <div className="flex items-center gap-2">
             <button
               onClick={() => setActiveTab('notifications')}
-              className="relative w-9 h-9 rounded-xl border border-[#e0e0e0] flex items-center justify-center text-[#1a1a1a] hover:bg-[#f5f5f5] transition-all cursor-pointer"
+              className="relative w-8 h-8 md:w-9 md:h-9 rounded-xl border border-[#e0e0e0] flex items-center justify-center text-[#1a1a1a] hover:bg-[#f5f5f5] transition-all cursor-pointer"
             >
               <Bell size={16} />
               {unreadNotifsCount > 0 && (
@@ -344,7 +347,7 @@ export default function ParentView({ user, onLogout, showToast }: ParentViewProp
         </header>
 
         {/* WORKSPACE */}
-        <main className="flex-1 overflow-y-auto p-8">
+        <main className="flex-1 overflow-y-auto p-4 md:p-8 pb-24 md:pb-8">
           {activeTab === 'messagerie' && (
             <MessagerieView currentUser={user} showToast={showToast} />
           )}
@@ -441,7 +444,7 @@ export default function ParentView({ user, onLogout, showToast }: ParentViewProp
                   )}
 
                   {/* Stats Cards */}
-                  <div className="grid grid-cols-4 gap-6">
+                  <div className="grid grid-cols-2 lg:grid-cols-4 gap-3 md:gap-6">
                     <div className="bg-white rounded-[24px] p-5 border border-[#e0e0e0] shadow-sm flex items-center gap-4">
                       <div className="w-10 h-10 rounded-xl bg-[#f5f5f5] text-[#1a1a1a] flex items-center justify-center text-lg">📈</div>
                       <div>
@@ -477,7 +480,7 @@ export default function ParentView({ user, onLogout, showToast }: ParentViewProp
                   </div>
 
                   {/* Layout split */}
-                  <div className="grid grid-cols-2 gap-6">
+                  <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
                     {/* Latest Marks Widget */}
                     <div className="bg-white rounded-[24px] border border-[#e0e0e0] p-6 shadow-sm space-y-4">
                       <h3 className="font-bold text-[10px] uppercase tracking-widest text-[#9e9e9e] mb-2">📝 Dernières notes obtenues</h3>

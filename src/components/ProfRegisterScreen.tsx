@@ -90,16 +90,28 @@ export default function ProfRegisterScreen({ onBack, showToast }: ProfRegisterSc
 
       onBack();
     } catch (err: any) {
-      console.error(err);
-      let errorMsg = err.message || "Une erreur est survenue lors de l'inscription.";
-      if (err.code === 'auth/network-request-failed') {
+      console.error('Prof registration error:', err);
+      const code = err?.code || '';
+      const msg = err?.message || '';
+      let errorMsg = "Une erreur est survenue lors de l'inscription.";
+
+      if (code === 'auth/network-request-failed' || msg.includes('network-request-failed')) {
         errorMsg = 'Problème de réseau ou connexion Internet interrompue. Veuillez réessayer.';
-      } else if (err.code === 'auth/email-already-in-use') {
+      } else if (code === 'auth/email-already-in-use' || msg.includes('email-already-in-use')) {
         errorMsg = 'Cette adresse e-mail est déjà associée à un compte existant. Veuillez vous connecter.';
-      } else if (err.code === 'auth/invalid-email') {
+      } else if (
+        code === 'auth/invalid-credential' ||
+        code === 'auth/wrong-password' ||
+        msg.includes('invalid-credential') ||
+        msg.includes('wrong-password')
+      ) {
+        errorMsg = 'Ce compte existe déjà ou les identifiants sont invalides. Veuillez vous connecter.';
+      } else if (code === 'auth/invalid-email' || msg.includes('invalid-email')) {
         errorMsg = 'L\'adresse e-mail saisie est invalide.';
-      } else if (err.code === 'auth/weak-password') {
+      } else if (code === 'auth/weak-password' || msg.includes('weak-password')) {
         errorMsg = 'Le mot de passe doit contenir au moins 6 caractères.';
+      } else if (msg) {
+        errorMsg = msg.replace(/^Firebase:\s*Error\s*\(.*?\)\.?/i, '').trim() || "Une erreur est survenue lors de l'inscription.";
       }
       showToast(`❌ Échec de l'inscription: ${errorMsg}`);
     } finally {

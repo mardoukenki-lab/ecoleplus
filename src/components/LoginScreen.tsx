@@ -63,9 +63,27 @@ export default function LoginScreen({ onLoginSuccess, onShowProfReg, onShowParen
 
     setLoading(true);
     try {
-      // Authenticate with Firebase Auth using provided credentials
-      const userCred = await signInWithEmailAndPassword(auth, lowerEmail, password);
-      const uid = userCred.user.uid;
+      let uid = '';
+      try {
+        // Authenticate with Firebase Auth using provided credentials
+        const userCred = await signInWithEmailAndPassword(auth, lowerEmail, password);
+        uid = userCred.user.uid;
+      } catch (authErr: any) {
+        if (isAdminEmail && (authErr.code === 'auth/user-not-found' || authErr.code === 'auth/invalid-credential')) {
+          try {
+            const newAdminCred = await createUserWithEmailAndPassword(auth, lowerEmail, password);
+            uid = newAdminCred.user.uid;
+          } catch (createErr: any) {
+            if (createErr.code === 'auth/email-already-in-use') {
+              throw authErr;
+            } else {
+              throw createErr;
+            }
+          }
+        } else {
+          throw authErr;
+        }
+      }
 
       // Get user document
       let userDoc = null;
@@ -119,20 +137,30 @@ export default function LoginScreen({ onLoginSuccess, onShowProfReg, onShowParen
 
       onLoginSuccess(profile);
     } catch (err: any) {
-      console.error(err);
-      let errorMsg = 'Identifiants invalides ou problème de connexion';
-      if (err.code === 'auth/network-request-failed') {
+      console.error('Login error:', err);
+      const code = err?.code || '';
+      const msg = err?.message || '';
+      let errorMsg = 'Identifiants invalides ou problème de connexion.';
+
+      if (code === 'auth/network-request-failed' || msg.includes('network-request-failed')) {
         errorMsg = 'Problème de réseau ou connexion Internet interrompue. Veuillez réessayer.';
-      } else if (err.code === 'auth/invalid-credential' || err.code === 'auth/wrong-password' || err.code === 'auth/user-not-found') {
+      } else if (
+        code === 'auth/invalid-credential' ||
+        code === 'auth/wrong-password' ||
+        code === 'auth/user-not-found' ||
+        msg.includes('invalid-credential') ||
+        msg.includes('wrong-password') ||
+        msg.includes('user-not-found')
+      ) {
         errorMsg = 'Adresse e-mail ou mot de passe incorrect.';
-      } else if (err.code === 'auth/too-many-requests') {
-        errorMsg = 'Trop de tentatives infructueuses. Veuillez patienter un instant.';
-      } else if (err.code === 'auth/weak-password') {
+      } else if (code === 'auth/too-many-requests' || msg.includes('too-many-requests')) {
+        errorMsg = 'Trop de tentatives de connexion. Veuillez patienter un instant.';
+      } else if (code === 'auth/weak-password' || msg.includes('weak-password')) {
         errorMsg = 'Le mot de passe doit contenir au moins 6 caractères.';
-      } else if (err.code === 'auth/invalid-email') {
+      } else if (code === 'auth/invalid-email' || msg.includes('invalid-email')) {
         errorMsg = 'Adresse e-mail invalide.';
-      } else if (err.message) {
-        errorMsg = err.message;
+      } else if (msg) {
+        errorMsg = msg.replace(/^Firebase:\s*Error\s*\(.*?\)\.?/i, '').trim() || 'Identifiants invalides.';
       }
       showToast(`❌ ${errorMsg}`);
     } finally {

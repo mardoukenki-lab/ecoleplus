@@ -553,14 +553,17 @@ export default function ProfView({ user, onLogout, showToast }: ProfViewProps) {
       {/* MAIN CONTENT */}
       <div className="flex-1 flex flex-col overflow-hidden">
         {/* HEADER */}
-        <header className="bg-white border-b border-[#e0e0e0] h-16 flex items-center px-8 justify-between flex-shrink-0">
-          <h2 className="font-sans font-semibold text-[#1a1a1a] text-base tracking-tight">
-            {activeTab === 'dashboard' && 'Tableau de bord Enseignant'}
-            {activeTab === 'notes' && 'Saisie des notes'}
-            {activeTab === 'absences' && 'Registre d\'Appel (Présences)'}
-            {activeTab === 'cahier' && 'Cahier de texte numérique'}
-            {activeTab === 'messagerie' && 'Messagerie'}
-          </h2>
+        <header className="bg-white border-b border-[#e0e0e0] h-16 flex items-center px-4 md:px-8 justify-between flex-shrink-0">
+          <div className="flex items-center gap-3 min-w-0">
+            <div className="md:hidden w-8 h-8 bg-[#1a1a1a] text-white rounded-lg flex items-center justify-center font-bold text-xs flex-shrink-0">EP</div>
+            <h2 className="font-sans font-semibold text-[#1a1a1a] text-sm md:text-base tracking-tight truncate">
+              {activeTab === 'dashboard' && 'Tableau de bord Enseignant'}
+              {activeTab === 'notes' && 'Saisie des notes'}
+              {activeTab === 'absences' && 'Registre d\'Appel (Présences)'}
+              {activeTab === 'cahier' && 'Cahier de texte numérique'}
+              {activeTab === 'messagerie' && 'Messagerie'}
+            </h2>
+          </div>
 
           <div className="flex items-center gap-4">
             <div className="relative">
@@ -600,7 +603,7 @@ export default function ProfView({ user, onLogout, showToast }: ProfViewProps) {
         </header>
 
         {/* WORKSPACE CONTENT */}
-        <main className="flex-1 overflow-y-auto p-8">
+        <main className="flex-1 overflow-y-auto p-4 md:p-8 pb-24 md:pb-8">
           {activeTab === 'dashboard' && (() => {
             const daysMap = ['Dimanche', 'Lundi', 'Mardi', 'Mercredi', 'Jeudi', 'Vendredi', 'Samedi'];
             const dayIdx = new Date().getDay();

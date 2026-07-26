@@ -230,8 +230,30 @@ export default function App() {
         </div>
       )}
 
+      {/* ARCHIVED / DEACTIVATED VIEW */}
+      {user && profile && (profile.statut === 'archive' || profile.status === 'archived' || profile.status === 'archive') && (
+        <div className="fixed inset-0 bg-[#f5f5f5] flex items-center justify-center z-50 p-6 text-center">
+          <div className="bg-white rounded-[32px] p-10 max-w-md w-full border border-[#e0e0e0] shadow-sm space-y-4">
+            <div className="w-12 h-12 bg-amber-50 text-amber-800 rounded-2xl mx-auto flex items-center justify-center text-lg">📦</div>
+            <h2 className="font-sans font-semibold text-xl text-[#1a1a1a] tracking-tight">Compte désactivé ou archivé</h2>
+            <p className="text-sm text-[#9e9e9e] leading-relaxed">
+              Bonjour <strong>{profile.nom}</strong>. Votre compte a été désactivé par l'administration du Lycée Moderne de Dabou.
+            </p>
+            <p className="text-xs text-[#9e9e9e] bg-[#f5f5f5] p-4 rounded-2xl leading-relaxed">
+              Vos informations et données antérieures sont conservées à des fins administratives. Contactez la direction pour toute demande de réactivation.
+            </p>
+            <button
+              onClick={handleLogout}
+              className="px-6 py-3 bg-[#1a1a1a] text-white font-semibold rounded-xl text-xs tracking-widest uppercase transition-all hover:bg-black w-full cursor-pointer"
+            >
+              Retour à la connexion
+            </button>
+          </div>
+        </div>
+      )}
+
       {/* ACTIVE ROLE VIEWS */}
-      {user && profile && profile.status === 'active' && (
+      {user && profile && profile.status === 'active' && profile.statut !== 'archive' && (
         <>
           {profile.role === 'admin' && (
             <AdminView user={profile} onLogout={handleLogout} showToast={showToast} />

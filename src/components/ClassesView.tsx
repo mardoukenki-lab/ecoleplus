@@ -101,6 +101,17 @@ export default function ClassesView({ currentUser, studentsList, showToast }: Cl
     }
   };
 
+  const handleDeleteStudent = async (student: Eleve) => {
+    if (!window.confirm(`Voulez-vous vraiment supprimer l'élève "${student.nom}" ?`)) return;
+    try {
+      await deleteDoc(doc(db, 'eleves', student.id));
+      showToast(`🗑️ Élève "${student.nom}" supprimé.`);
+    } catch (err: any) {
+      console.error('Error deleting student:', err);
+      showToast('❌ Échec de la suppression de l\'élève.');
+    }
+  };
+
   const classStudents = selectedClass
     ? studentsList.filter((s) => s.classe === selectedClass && s.nom.toLowerCase().includes(searchStudent.toLowerCase()))
     : [];
@@ -233,6 +244,7 @@ export default function ClassesView({ currentUser, studentsList, showToast }: Cl
                   <th className="py-2.5 px-4">Matricule / Code</th>
                   <th className="py-2.5 px-4">Parent Associé</th>
                   <th className="py-2.5 px-4">Statut Compte Parent</th>
+                  {currentUser.role === 'admin' && <th className="py-2.5 px-4 text-right">Action</th>}
                 </tr>
               </thead>
               <tbody className="divide-y divide-[#e0e0e0]/60 text-xs">
@@ -252,12 +264,23 @@ export default function ClassesView({ currentUser, studentsList, showToast }: Cl
                         </span>
                       )}
                     </td>
+                    {currentUser.role === 'admin' && (
+                      <td className="py-3 px-4 text-right">
+                        <button
+                          onClick={() => handleDeleteStudent(s)}
+                          title="Supprimer l'élève"
+                          className="p-1.5 text-red-500 hover:text-red-700 hover:bg-red-50 rounded-lg transition-colors cursor-pointer"
+                        >
+                          <Trash2 size={15} />
+                        </button>
+                      </td>
+                    )}
                   </tr>
                 ))}
 
                 {classStudents.length === 0 && (
                   <tr>
-                    <td colSpan={4} className="py-8 text-center text-xs text-[#9e9e9e]">
+                    <td colSpan={currentUser.role === 'admin' ? 5 : 4} className="py-8 text-center text-xs text-[#9e9e9e]">
                       Aucun élève inscrit dans la classe de {selectedClass} pour l'instant.
                     </td>
                   </tr>

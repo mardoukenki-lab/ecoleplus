@@ -1,8 +1,8 @@
 import React, { useState, useEffect } from 'react';
 import { db, handleFirestoreError, OperationType } from '../lib/firebase';
 import { collection, query, where, getDocs, doc, updateDoc, onSnapshot } from 'firebase/firestore';
-import { UserProfile, Eleve, Note, Absence, Paiement, AppNotification } from '../types';
-import { Award, Clock, FileText, CreditCard, Bell, LogOut, ChevronRight, Check, Mail, Smartphone, Volume2, ShieldCheck, Zap, MessageSquare } from 'lucide-react';
+import { UserProfile, Eleve, Note, Absence, Paiement, AppNotification, Observation } from '../types';
+import { Award, Clock, FileText, CreditCard, Bell, LogOut, ChevronRight, Check, Mail, Smartphone, Volume2, ShieldCheck, Zap, MessageSquare, X } from 'lucide-react';
 import { playNotificationChime, requestPushPermission, triggerBrowserPushNotification, initServiceWorker } from '../lib/notifications';
 import MessagerieView from './MessagerieView';
 import BulletinView from './BulletinView';
@@ -27,6 +27,10 @@ export default function ParentView({ user, onLogout, showToast }: ParentViewProp
   const [absences, setAbsences] = useState<Absence[]>([]);
   const [paiement, setPaiement] = useState<Paiement | null>(null);
   const [notifications, setNotifications] = useState<AppNotification[]>([]);
+  const [observations, setObservations] = useState<Observation[]>([]);
+
+  // Mobile drawer state
+  const [isMobilePlusMenuOpen, setIsMobilePlusMenuOpen] = useState(false);
 
   // Initialize Service Worker & check initial push notification permission status
   useEffect(() => {
@@ -50,6 +54,7 @@ export default function ParentView({ user, onLogout, showToast }: ParentViewProp
   // Refs to detect real-time snapshot updates after initial load
   const isInitialNotifs = React.useRef(true);
   const isInitialNotes = React.useRef(true);
+  const isInitialObservations = React.useRef(true);
 
   // Load children based on codes
   useEffect(() => {
@@ -130,10 +135,33 @@ export default function ParentView({ user, onLogout, showToast }: ParentViewProp
       }
     }, (err) => console.warn('Parent paiement listener notice:', err));
 
+    const unsubObs = onSnapshot(query(collection(db, 'observations'), where('eleveId', '==', selectedKid.id)), (snap) => {
+      if (!isInitialObservations.current) {
+        snap.docChanges().forEach((change) => {
+          if (change.type === 'added') {
+            const obsData = change.doc.data() as Observation;
+            triggerBrowserPushNotification(
+              `NOUVELLE OBSERVATION — ${selectedKid.nom}`,
+              `[${obsData.type.toUpperCase()}] ${obsData.titre} : ${obsData.description}`,
+              '💬'
+            );
+            showToast(`💬 NOUVELLE OBSERVATION (${obsData.type.toUpperCase()}) pour ${selectedKid.nom} : "${obsData.titre}"`);
+          }
+        });
+      } else {
+        isInitialObservations.current = false;
+      }
+
+      const list: Observation[] = [];
+      snap.forEach(d => list.push(d.data() as Observation));
+      setObservations(list.sort((a,b) => b.createdAt.localeCompare(a.createdAt)));
+    }, (err) => console.warn('Parent observations listener notice:', err));
+
     return () => {
       unsubNotes();
       unsubAbs();
       unsubPaiement();
+      unsubObs();
     };
   }, [selectedKid]);
 
@@ -175,8 +203,8 @@ export default function ParentView({ user, onLogout, showToast }: ParentViewProp
 
   return (
     <div className="flex h-screen bg-[#f5f5f5] overflow-hidden">
-      {/* SIDEBAR */}
-      <aside className="w-64 bg-white border-r border-[#e0e0e0] flex flex-col flex-shrink-0">
+      {/* SIDEBAR DESKTOP */}
+      <aside className="hidden md:flex md:w-64 bg-white border-r border-[#e0e0e0] flex-col flex-shrink-0">
         <div className="p-6 border-b border-[#e0e0e0] flex items-center gap-3">
           <div className="w-9 h-9 bg-[#1a1a1a] text-white rounded-xl flex items-center justify-center font-bold text-sm">EP</div>
           <div>
@@ -212,6 +240,15 @@ export default function ParentView({ user, onLogout, showToast }: ParentViewProp
                 className={`w-full flex items-center gap-3 px-3 py-2.5 rounded-xl text-xs font-semibold tracking-tight transition-all cursor-pointer ${activeTab === 'emploi' ? 'bg-[#1a1a1a] text-white' : 'text-[#9e9e9e] hover:bg-[#f5f5f5]/60 hover:text-[#1a1a1a]'}`}
               >
                 📅 Emploi du temps
+              </button>
+              <button
+                onClick={() => setActiveTab('observations')}
+                className={`w-full flex items-center justify-between px-3 py-2.5 rounded-xl text-xs font-semibold tracking-tight transition-all cursor-pointer ${activeTab === 'observations' ? 'bg-[#1a1a1a] text-white' : 'text-[#9e9e9e] hover:bg-[#f5f5f5]/60 hover:text-[#1a1a1a]'}`}
+              >
+                <span className="flex items-center gap-3">💬 Observations & Dossier</span>
+                {observations.length > 0 && (
+                  <span className="bg-[#f5f5f5] text-[#1a1a1a] border border-[#e0e0e0] text-[10px] px-2 py-0.5 rounded-full font-bold">{observations.length}</span>
+                )}
               </button>
             </div>
           </div>
@@ -268,6 +305,7 @@ export default function ParentView({ user, onLogout, showToast }: ParentViewProp
               {activeTab === 'resultats' && 'Relevé de notes détaillé'}
               {activeTab === 'presence' && 'Registre de ponctualité'}
               {activeTab === 'emploi' && 'Grille horaire hebdomadaire'}
+              {activeTab === 'observations' && 'Dossier & Observations de l\'élève'}
               {activeTab === 'paiements' && 'Frais scolaires & Comptabilité'}
               {activeTab === 'notifications' && 'Historique de notifications'}
             </h2>
@@ -371,6 +409,33 @@ export default function ParentView({ user, onLogout, showToast }: ParentViewProp
                         className="bg-white text-[#1a1a1a] font-bold px-3.5 py-2 rounded-xl text-xs hover:bg-neutral-200 transition-all cursor-pointer flex-shrink-0"
                       >
                         Voir les résultats →
+                      </button>
+                    </div>
+                  )}
+
+                  {/* Real-Time Observation Notification Banner */}
+                  {notifications.some(n => n.unread && (n.text.includes('observation') || n.text.includes('Observation'))) && (
+                    <div className="bg-[#1a1a1a] text-white p-4 rounded-[20px] shadow-sm border border-[#333] flex items-center justify-between gap-4">
+                      <div className="flex items-center gap-3 min-w-0">
+                        <span className="text-xl p-2 bg-blue-500/20 text-blue-400 rounded-xl flex-shrink-0">💬</span>
+                        <div className="min-w-0">
+                          <div className="text-xs font-bold flex items-center gap-2 text-blue-400">
+                            <span className="w-2 h-2 rounded-full bg-blue-500 animate-ping inline-block"></span>
+                            Nouvelle Observation au dossier
+                          </div>
+                          <p className="text-xs text-neutral-300 truncate mt-0.5">
+                            {notifications.find(n => n.unread && (n.text.includes('observation') || n.text.includes('Observation')))?.text}
+                          </p>
+                        </div>
+                      </div>
+                      <button
+                        onClick={() => {
+                          setActiveTab('observations');
+                          notifications.filter(n => n.unread && (n.text.includes('observation') || n.text.includes('Observation'))).forEach(n => handleMarkAsRead(n.id));
+                        }}
+                        className="bg-white text-[#1a1a1a] font-bold px-3.5 py-2 rounded-xl text-xs hover:bg-neutral-200 transition-all cursor-pointer flex-shrink-0"
+                      >
+                        Consulter le dossier →
                       </button>
                     </div>
                   )}
@@ -602,6 +667,57 @@ export default function ParentView({ user, onLogout, showToast }: ParentViewProp
                 </div>
               )}
 
+              {activeTab === 'observations' && (
+                <div className="space-y-6">
+                  <div className="bg-white rounded-[24px] border border-[#e0e0e0] p-6 shadow-sm space-y-3">
+                    <div className="flex items-center gap-3">
+                      <div className="w-10 h-10 rounded-xl bg-[#f5f5f5] text-[#1a1a1a] flex items-center justify-center text-lg">💬</div>
+                      <div>
+                        <h3 className="font-bold text-sm text-[#1a1a1a]">Observations & Remarques Pédagogiques</h3>
+                        <p className="text-xs text-[#9e9e9e]">Toutes les appréciations, félicitations, encouragements et avertissements ajoutés au dossier de <strong>{selectedKid.nom}</strong> ({selectedKid.classe}).</p>
+                      </div>
+                    </div>
+                  </div>
+
+                  <div className="bg-white rounded-[24px] border border-[#e0e0e0] shadow-sm overflow-hidden">
+                    <div className="p-5 border-b border-[#e0e0e0] flex justify-between items-center bg-[#f5f5f5]/30">
+                      <span className="font-bold text-xs text-[#1a1a1a]">Dossier disciplinaire et suivi pédagogique</span>
+                      <span className="text-[10px] font-bold text-[#9e9e9e] uppercase tracking-widest">{observations.length} observation(s)</span>
+                    </div>
+
+                    <div className="divide-y divide-[#e0e0e0]/60 p-4 space-y-4">
+                      {observations.map((obs) => {
+                        const badgeBg = obs.type === 'felicitation' ? 'bg-purple-100 text-purple-800 border-purple-200' : obs.type === 'avertissement' ? 'bg-amber-100 text-amber-800 border-amber-200' : 'bg-blue-100 text-blue-800 border-blue-200';
+                        const badgeIcon = obs.type === 'felicitation' ? '🌟' : obs.type === 'avertissement' ? '⚠️' : obs.type === 'encouragement' ? '👍' : '💬';
+
+                        return (
+                          <div key={obs.id} className="p-5 bg-[#f5f5f5]/30 border border-[#e0e0e0] rounded-2xl space-y-2.5">
+                            <div className="flex items-center justify-between flex-wrap gap-2">
+                              <span className={`text-[10px] font-bold px-2.5 py-1 rounded-xl border ${badgeBg}`}>
+                                {badgeIcon} {obs.type.toUpperCase()}
+                              </span>
+                              <span className="text-[10px] text-[#9e9e9e] font-medium">
+                                Publié le {obs.date} • Par {obs.auteurNom} ({obs.matiere || 'Enseignant/Direction'})
+                              </span>
+                            </div>
+                            <h4 className="text-sm font-bold text-[#1a1a1a]">{obs.titre}</h4>
+                            <p className="text-xs text-[#9e9e9e] leading-relaxed bg-white p-3.5 rounded-xl border border-[#e0e0e0]">
+                              {obs.description}
+                            </p>
+                          </div>
+                        );
+                      })}
+
+                      {observations.length === 0 && (
+                        <div className="py-12 text-center text-xs text-[#9e9e9e]">
+                          Aucune observation particulière enregistrée dans le dossier de {selectedKid.nom} pour le moment.
+                        </div>
+                      )}
+                    </div>
+                  </div>
+                </div>
+              )}
+
               {activeTab === 'notifications' && (
                 <div className="space-y-6">
                   {/* Web Push API & Service Worker Status Card */}
@@ -708,6 +824,99 @@ export default function ParentView({ user, onLogout, showToast }: ParentViewProp
           )}
         </main>
       </div>
+
+      {/* MOBILE BOTTOM NAVIGATION BAR */}
+      <div className="md:hidden fixed bottom-0 inset-x-0 bg-white border-t border-[#e0e0e0] flex justify-around items-center py-2 z-40 shadow-lg px-1">
+        <button
+          onClick={() => setActiveTab('dashboard')}
+          className={`flex flex-col items-center gap-0.5 text-[10px] font-bold ${activeTab === 'dashboard' ? 'text-[#1a1a1a]' : 'text-[#9e9e9e]'}`}
+        >
+          <span className="text-base">📊</span>
+          <span>Bord</span>
+        </button>
+        <button
+          onClick={() => setActiveTab('resultats')}
+          className={`flex flex-col items-center gap-0.5 text-[10px] font-bold ${activeTab === 'resultats' ? 'text-[#1a1a1a]' : 'text-[#9e9e9e]'}`}
+        >
+          <span className="text-base">🎯</span>
+          <span>Notes</span>
+        </button>
+        <button
+          onClick={() => setActiveTab('bulletin')}
+          className={`flex flex-col items-center gap-0.5 text-[10px] font-bold ${activeTab === 'bulletin' ? 'text-[#1a1a1a]' : 'text-[#9e9e9e]'}`}
+        >
+          <span className="text-base">📋</span>
+          <span>Bulletin</span>
+        </button>
+        <button
+          onClick={() => setActiveTab('paiements')}
+          className={`flex flex-col items-center gap-0.5 text-[10px] font-bold ${activeTab === 'paiements' ? 'text-[#1a1a1a]' : 'text-[#9e9e9e]'}`}
+        >
+          <span className="text-base">💳</span>
+          <span>Frais</span>
+        </button>
+        <button
+          onClick={() => setIsMobilePlusMenuOpen(!isMobilePlusMenuOpen)}
+          className={`flex flex-col items-center gap-0.5 text-[10px] font-bold ${isMobilePlusMenuOpen ? 'text-[#1a1a1a]' : 'text-[#9e9e9e]'}`}
+        >
+          <span className="text-base">⚙️</span>
+          <span>Plus</span>
+        </button>
+      </div>
+
+      {/* MOBILE PLUS DRAWER MENU */}
+      {isMobilePlusMenuOpen && (
+        <div className="md:hidden fixed inset-0 bg-black/50 z-50 flex flex-col justify-end">
+          <div className="bg-white rounded-t-3xl p-6 space-y-4 max-h-[80vh] overflow-y-auto animate-in slide-in-from-bottom">
+            <div className="flex items-center justify-between border-b border-[#e0e0e0] pb-3">
+              <h3 className="font-bold text-sm text-[#1a1a1a]">Espace Parent</h3>
+              <button onClick={() => setIsMobilePlusMenuOpen(false)} className="p-1 text-[#9e9e9e] hover:text-[#1a1a1a]">
+                <X size={18} />
+              </button>
+            </div>
+            <div className="grid grid-cols-2 gap-2 text-xs font-semibold">
+              <button
+                onClick={() => { setActiveTab('presence'); setIsMobilePlusMenuOpen(false); }}
+                className="p-3 bg-[#f5f5f5] hover:bg-[#1a1a1a] hover:text-white rounded-xl text-left"
+              >
+                📌 Absences & Présences
+              </button>
+              <button
+                onClick={() => { setActiveTab('cahier'); setIsMobilePlusMenuOpen(false); }}
+                className="p-3 bg-[#f5f5f5] hover:bg-[#1a1a1a] hover:text-white rounded-xl text-left"
+              >
+                📓 Cahier de texte
+              </button>
+              <button
+                onClick={() => { setActiveTab('emploi'); setIsMobilePlusMenuOpen(false); }}
+                className="p-3 bg-[#f5f5f5] hover:bg-[#1a1a1a] hover:text-white rounded-xl text-left"
+              >
+                📅 Emploi du temps
+              </button>
+              <button
+                onClick={() => { setActiveTab('observations'); setIsMobilePlusMenuOpen(false); }}
+                className="p-3 bg-[#f5f5f5] hover:bg-[#1a1a1a] hover:text-white rounded-xl text-left"
+              >
+                💬 Observations ({observations.length})
+              </button>
+              <button
+                onClick={() => { setActiveTab('messagerie'); setIsMobilePlusMenuOpen(false); }}
+                className="p-3 bg-[#f5f5f5] hover:bg-[#1a1a1a] hover:text-white rounded-xl text-left col-span-2"
+              >
+                💬 Messagerie avec l'école
+              </button>
+            </div>
+            <div className="pt-2 border-t border-[#e0e0e0] flex items-center justify-between">
+              <button
+                onClick={onLogout}
+                className="text-xs font-bold text-gray-700 flex items-center gap-1 py-2"
+              >
+                <LogOut size={14} /> Déconnexion
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   );
 }

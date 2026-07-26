@@ -39,8 +39,15 @@ service cloud.firestore {
     match /users/{userId} {
       allow read: if isAuthenticated();
       allow create: if isAuthenticated();
-      allow update: if isAuthenticated() && (request.auth.uid == userId || isAdmin());
-      allow delete: if isAdmin();
+      allow update: if isAuthenticated() && (request.auth.uid == userId || (isAdmin() && request.auth.uid != userId));
+      allow delete: if isAdmin() && request.auth.uid != userId;
+    }
+
+    // Audit logs: Admin read, authenticated create, immutable
+    match /audit_log/{docId} {
+      allow read: if isAdmin();
+      allow create: if isAuthenticated();
+      allow update, delete: if false;
     }
 
     // Eleves: Authenticated read, Admin write
@@ -99,6 +106,12 @@ service cloud.firestore {
 
     // Schedules (Emploi du temps): Authenticated read, Admin/Prof write
     match /schedules/{docId} {
+      allow read: if isAuthenticated();
+      allow write: if isProf();
+    }
+
+    // Observations: Authenticated read, Admin/Prof write
+    match /observations/{docId} {
       allow read: if isAuthenticated();
       allow write: if isProf();
     }

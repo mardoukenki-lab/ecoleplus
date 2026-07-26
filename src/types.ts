@@ -4,6 +4,9 @@ export interface UserProfile {
   email: string;
   role: 'admin' | 'prof' | 'parent';
   status: 'pending' | 'active' | 'refused';
+  statut?: 'active' | 'archive';
+  archivedAt?: string;
+  archivedBy?: string;
   tel: string;
   matiere?: string;
   etablissement?: string;
@@ -18,7 +21,29 @@ export interface Eleve {
   code: string;
   parentUid?: string | null;
   parentNom?: string | null;
+  scolaritePayee?: number;
+  statut?: 'active' | 'archive';
+  archivedAt?: string;
+  archivedBy?: string;
+  archiveRaison?: string;
   createdAt: string;
+}
+
+export interface AuditLog {
+  id: string;
+  action: 'eleve_archive' | 'eleve_restore' | 'eleve_delete' | 'prof_deactivate' | 'prof_reactivate' | 'prof_delete';
+  targetId: string;
+  targetNom?: string;
+  targetName?: string;
+  targetType?: 'eleve' | 'prof';
+  by?: string;
+  byNom?: string;
+  adminUid?: string;
+  adminNom?: string;
+  raison?: string;
+  details?: string;
+  at?: string;
+  timestamp: string;
 }
 
 export interface Note {
@@ -120,4 +145,20 @@ export interface ScheduleSlot {
   profNom: string;
   salle?: string;
   createdAt?: string;
+}
+
+export interface Observation {
+  id: string;
+  eleveId: string;
+  eleveNom: string;
+  classe: string;
+  auteurUid: string;
+  auteurNom: string;
+  auteurRole: 'prof' | 'admin';
+  matiere?: string;
+  type: 'felicitation' | 'encouragement' | 'avertissement' | 'remarque';
+  titre: string;
+  description: string;
+  date: string;
+  createdAt: string;
 }

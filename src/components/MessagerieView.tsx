@@ -2,7 +2,7 @@ import React, { useState, useEffect, useRef } from 'react';
 import { db } from '../lib/firebase';
 import { collection, onSnapshot, query, where, addDoc, setDoc, doc } from 'firebase/firestore';
 import { UserProfile, ChatMessage } from '../types';
-import { Send, User, ShieldCheck, Search, MessageSquare, CheckCheck } from 'lucide-react';
+import { Send, User, ShieldCheck, Search, MessageSquare, CheckCheck, ArrowLeft } from 'lucide-react';
 
 interface MessagerieViewProps {
   currentUser: UserProfile;
@@ -20,6 +20,7 @@ interface ContactItem {
 export default function MessagerieView({ currentUser, showToast }: MessagerieViewProps) {
   const [contacts, setContacts] = useState<ContactItem[]>([]);
   const [selectedContact, setSelectedContact] = useState<ContactItem | null>(null);
+  const [mobileShowChat, setMobileShowChat] = useState<boolean>(false);
   const [messages, setMessages] = useState<ChatMessage[]>([]);
   const [inputText, setInputText] = useState('');
   const [searchQuery, setSearchQuery] = useState('');
@@ -107,7 +108,7 @@ export default function MessagerieView({ currentUser, showToast }: MessagerieVie
   // Scroll to bottom when messages update
   useEffect(() => {
     messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' });
-  }, [messages, selectedContact]);
+  }, [messages, selectedContact, mobileShowChat]);
 
   // Filter messages for current active conversation
   const activeConversationMessages = messages.filter((m) => {
@@ -182,10 +183,14 @@ export default function MessagerieView({ currentUser, showToast }: MessagerieVie
   );
 
   return (
-    <div className="bg-white rounded-[24px] border border-[#e0e0e0] shadow-sm h-[560px] flex overflow-hidden">
+    <div className="bg-white rounded-[24px] border border-[#e0e0e0] shadow-sm h-[520px] md:h-[580px] flex overflow-hidden">
       {/* Left sidebar: Contacts list */}
-      <div className="w-72 border-r border-[#e0e0e0] flex flex-col flex-shrink-0 bg-[#f5f5f5]/30">
-        <div className="p-4 border-b border-[#e0e0e0] space-y-3">
+      <div
+        className={`w-full md:w-72 border-r border-[#e0e0e0] flex flex-col flex-shrink-0 bg-[#f5f5f5]/30 ${
+          mobileShowChat ? 'hidden md:flex' : 'flex'
+        }`}
+      >
+        <div className="p-3.5 md:p-4 border-b border-[#e0e0e0] space-y-2.5">
           <div className="font-bold text-[10px] text-[#9e9e9e] uppercase tracking-widest flex items-center gap-1.5">
             <MessageSquare size={13} /> Messagerie en Direct
           </div>
@@ -207,7 +212,10 @@ export default function MessagerieView({ currentUser, showToast }: MessagerieVie
             return (
               <div
                 key={c.uid}
-                onClick={() => setSelectedContact(c)}
+                onClick={() => {
+                  setSelectedContact(c);
+                  setMobileShowChat(true);
+                }}
                 className={`p-3.5 cursor-pointer transition-all flex items-center gap-3 ${
                   isSelected ? 'bg-white border-l-4 border-l-[#1a1a1a] shadow-2xs' : 'hover:bg-[#f5f5f5]/60'
                 }`}
@@ -235,31 +243,44 @@ export default function MessagerieView({ currentUser, showToast }: MessagerieVie
       </div>
 
       {/* Right panel: Active Chat */}
-      <div className="flex-1 flex flex-col bg-white">
+      <div
+        className={`flex-1 flex flex-col bg-white w-full ${
+          !mobileShowChat ? 'hidden md:flex' : 'flex'
+        }`}
+      >
         {selectedContact ? (
           <>
             {/* Header */}
-            <div className="p-4 border-b border-[#e0e0e0] flex items-center justify-between bg-white">
-              <div className="flex items-center gap-3">
+            <div className="p-3 md:p-4 border-b border-[#e0e0e0] flex items-center justify-between bg-white gap-2">
+              <div className="flex items-center gap-2.5 min-w-0">
+                <button
+                  type="button"
+                  onClick={() => setMobileShowChat(false)}
+                  className="md:hidden flex items-center gap-1 text-xs font-bold text-[#1a1a1a] p-1.5 rounded-xl bg-[#f5f5f5] border border-[#e0e0e0] hover:bg-[#e0e0e0] transition-all flex-shrink-0"
+                >
+                  <ArrowLeft size={15} />
+                  <span className="hidden sm:inline">Contacts</span>
+                </button>
+
                 <div
-                  className={`w-8 h-8 rounded-xl flex items-center justify-center text-xs font-bold ${
+                  className={`w-8 h-8 rounded-xl flex items-center justify-center text-xs font-bold flex-shrink-0 ${
                     selectedContact.isChannel ? 'bg-[#1a1a1a] text-white' : 'bg-[#f5f5f5] text-[#1a1a1a] border border-[#e0e0e0]'
                   }`}
                 >
                   {selectedContact.isChannel ? '📢' : selectedContact.nom.substring(0, 2).toUpperCase()}
                 </div>
-                <div>
-                  <h3 className="font-bold text-xs text-[#1a1a1a]">{selectedContact.nom}</h3>
-                  <p className="text-[10px] text-[#9e9e9e] font-medium">{selectedContact.subtext || selectedContact.role}</p>
+                <div className="min-w-0">
+                  <h3 className="font-bold text-xs text-[#1a1a1a] truncate">{selectedContact.nom}</h3>
+                  <p className="text-[10px] text-[#9e9e9e] font-medium truncate">{selectedContact.subtext || selectedContact.role}</p>
                 </div>
               </div>
-              <span className="text-[9px] font-bold uppercase tracking-widest text-emerald-800 bg-emerald-50 px-2.5 py-1 rounded-lg border border-emerald-200">
-                ● En direct via Firestore
+              <span className="hidden sm:inline-block text-[9px] font-bold uppercase tracking-widest text-emerald-800 bg-emerald-50 px-2.5 py-1 rounded-lg border border-emerald-200 flex-shrink-0">
+                ● En direct
               </span>
             </div>
 
             {/* Chat Body */}
-            <div className="flex-1 p-5 overflow-y-auto space-y-3.5 bg-[#f5f5f5]/15">
+            <div className="flex-1 p-3.5 md:p-5 overflow-y-auto space-y-3 bg-[#f5f5f5]/15">
               {activeConversationMessages.map((m) => {
                 const isMe = m.senderUid === currentUser.uid;
                 const formattedTime = m.createdAt
@@ -272,7 +293,7 @@ export default function MessagerieView({ currentUser, showToast }: MessagerieVie
                       {isMe ? 'Vous' : m.senderNom} · {formattedTime}
                     </div>
                     <div
-                      className={`p-3.5 rounded-2xl max-w-md text-xs leading-relaxed shadow-2xs ${
+                      className={`p-3 md:p-3.5 rounded-2xl max-w-[85%] md:max-w-md text-xs leading-relaxed shadow-2xs ${
                         isMe
                           ? 'bg-[#1a1a1a] text-white rounded-tr-none'
                           : 'bg-white border border-[#e0e0e0] text-[#1a1a1a] rounded-tl-none'
@@ -285,7 +306,7 @@ export default function MessagerieView({ currentUser, showToast }: MessagerieVie
               })}
 
               {activeConversationMessages.length === 0 && (
-                <div className="h-full flex flex-col items-center justify-center text-center p-8 space-y-2 text-[#9e9e9e]">
+                <div className="h-full flex flex-col items-center justify-center text-center p-6 space-y-2 text-[#9e9e9e]">
                   <MessageSquare size={32} className="text-[#e0e0e0]" />
                   <p className="text-xs font-semibold text-[#1a1a1a]">Aucun message échangé pour le moment</p>
                   <p className="text-[11px] max-w-xs">
@@ -297,19 +318,19 @@ export default function MessagerieView({ currentUser, showToast }: MessagerieVie
             </div>
 
             {/* Chat Footer / Input */}
-            <form onSubmit={handleSendMessage} className="p-3.5 border-t border-[#e0e0e0] flex gap-2.5 bg-white">
+            <form onSubmit={handleSendMessage} className="p-2.5 md:p-3.5 border-t border-[#e0e0e0] flex gap-2 bg-white">
               <input
                 type="text"
                 value={inputText}
                 onChange={(e) => setInputText(e.target.value)}
                 placeholder={`Écrire à ${selectedContact.nom}...`}
-                className="flex-1 px-4 py-2.5 border border-[#e0e0e0] rounded-xl text-xs bg-white text-[#1a1a1a] focus:outline-none focus:border-[#1a1a1a]"
+                className="flex-1 px-3 md:px-4 py-2 md:py-2.5 border border-[#e0e0e0] rounded-xl text-xs bg-white text-[#1a1a1a] focus:outline-none focus:border-[#1a1a1a]"
                 disabled={sending}
               />
               <button
                 type="submit"
                 disabled={sending || !inputText.trim()}
-                className="bg-[#1a1a1a] hover:bg-black disabled:opacity-50 text-white px-5 py-2.5 rounded-xl transition-all cursor-pointer flex items-center justify-center gap-1.5 text-xs font-bold"
+                className="bg-[#1a1a1a] hover:bg-black disabled:opacity-50 text-white px-4 md:px-5 py-2 md:py-2.5 rounded-xl transition-all cursor-pointer flex items-center justify-center gap-1.5 text-xs font-bold flex-shrink-0"
               >
                 <Send size={15} />
               </button>
@@ -324,3 +345,4 @@ export default function MessagerieView({ currentUser, showToast }: MessagerieVie
     </div>
   );
 }
+

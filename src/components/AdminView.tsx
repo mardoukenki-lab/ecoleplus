@@ -5,7 +5,7 @@ import { UserProfile, Eleve, Note, Absence, CahierTexte, Paiement, Annonce, AppN
 import StudentImportModal from './StudentImportModal';
 import { clearAllDatabaseData, restoreDemoData } from '../lib/demoData';
 import { 
-  Users, UserCheck, BookOpen, Clock, CreditCard, Bell, LogOut, ChevronRight, Check, X, Eye, Plus, Send, RefreshCw, Star, FileSpreadsheet, Upload, Trash2, RotateCcw, Sparkles, MessageSquare, Archive, ShieldAlert, FileText, Menu, AlertTriangle
+  Users, UserCheck, BookOpen, Clock, CreditCard, Bell, LogOut, ChevronRight, Check, X, Eye, Plus, Send, RefreshCw, Star, FileSpreadsheet, Upload, Trash2, RotateCcw, Sparkles, MessageSquare, Archive, ShieldAlert, FileText, Menu, AlertTriangle, GraduationCap
 } from 'lucide-react';
 import MessagerieView from './MessagerieView';
 import ClassesView from './ClassesView';
@@ -108,6 +108,12 @@ export default function AdminView({ user, onLogout, showToast }: AdminViewProps)
 
   // Mobile drawer state
   const [isMobilePlusMenuOpen, setIsMobilePlusMenuOpen] = useState(false);
+
+  // Edit Student Class Modal state
+  const [isChangeClassModalOpen, setIsChangeClassModalOpen] = useState(false);
+  const [selectedEleveForClassChange, setSelectedEleveForClassChange] = useState<Eleve | null>(null);
+  const [newClasseInput, setNewClasseInput] = useState('');
+  const [customClasseInput, setCustomClasseInput] = useState('');
 
   const handleConfirmResetDatabase = async () => {
     setIsResetting(true);
@@ -375,6 +381,58 @@ export default function AdminView({ user, onLogout, showToast }: AdminViewProps)
     } catch (err) {
       console.error(err);
       showToast('❌ Échec de l\'enregistrement du paiement.');
+    }
+  };
+
+  const handleOpenChangeClassModal = (eleve: Eleve) => {
+    setSelectedEleveForClassChange(eleve);
+    setNewClasseInput(eleve.classe || '6e A');
+    setCustomClasseInput('');
+    setIsChangeClassModalOpen(true);
+  };
+
+  const handleSaveStudentClassChange = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!selectedEleveForClassChange) return;
+
+    const targetClass = (newClasseInput === 'autre' ? customClasseInput.trim() : newClasseInput.trim());
+    if (!targetClass) {
+      showToast('⚠️ Veuillez choisir ou saisir une classe valide.');
+      return;
+    }
+
+    const oldClasse = selectedEleveForClassChange.classe;
+    const eleveId = selectedEleveForClassChange.id;
+
+    try {
+      // 1. Update eleves collection in Firestore
+      await updateDoc(doc(db, 'eleves', eleveId), { classe: targetClass });
+
+      // 2. Update paiements collection if a payment record exists
+      const paymentDoc = payments.find(p => p.eleveId === eleveId);
+      if (paymentDoc) {
+        await updateDoc(doc(db, 'paiements', paymentDoc.id), { classe: targetClass });
+      }
+
+      // 3. Update parent user record if parent is linked
+      if (selectedEleveForClassChange.parentUid) {
+        const parentUser = allUsers.find(u => u.uid === selectedEleveForClassChange.parentUid);
+        if (parentUser && parentUser.enfants) {
+          const updatedEnfants = parentUser.enfants.map(enf =>
+            (enf.matricule === selectedEleveForClassChange.code || enf.nom === selectedEleveForClassChange.nom)
+              ? { ...enf, classe: targetClass }
+              : enf
+          );
+          await updateDoc(doc(db, 'users', parentUser.uid), { enfants: updatedEnfants });
+        }
+      }
+
+      showToast(`🔄 Classe de ${selectedEleveForClassChange.nom} modifiée : ${oldClasse || 'N/A'} ➔ ${targetClass}`);
+      setIsChangeClassModalOpen(false);
+      setSelectedEleveForClassChange(null);
+    } catch (err: any) {
+      console.error('Error changing student class:', err);
+      showToast('❌ Échec de la modification de la classe.');
     }
   };
 
@@ -1350,7 +1408,18 @@ export default function AdminView({ user, onLogout, showToast }: AdminViewProps)
                           </div>
                           <div>
                             <div className="font-bold text-sm text-[#1a1a1a]">{s.nom}</div>
-                            <div className="text-[11px] text-[#9e9e9e] font-semibold">Classe : {s.classe}</div>
+                            <div className="text-[11px] text-[#9e9e9e] font-semibold flex items-center gap-1.5 mt-0.5">
+                              <span>Classe : <strong className="text-[#1a1a1a]">{s.classe}</strong></span>
+                              {s.statut !== 'archive' && (
+                                <button
+                                  onClick={() => handleOpenChangeClassModal(s)}
+                                  className="text-[10px] font-bold text-blue-800 bg-blue-50 hover:bg-blue-100 border border-blue-200 px-1.5 py-0.5 rounded transition-all cursor-pointer"
+                                  title="Changer de classe"
+                                >
+                                  ✏️ Changer
+                                </button>
+                              )}
+                            </div>
                           </div>
                         </div>
                         <span className={`px-2 py-0.5 rounded text-[9px] font-bold uppercase ${
@@ -1432,7 +1501,20 @@ export default function AdminView({ user, onLogout, showToast }: AdminViewProps)
                               {s.archiveRaison && <div className="text-[10px] text-amber-700 font-normal italic">Raison: {s.archiveRaison}</div>}
                             </div>
                           </td>
-                          <td className="py-3.5 px-5 text-[#1a1a1a] font-semibold">{s.classe}</td>
+                          <td className="py-3.5 px-5 text-[#1a1a1a]">
+                            <div className="flex items-center gap-2">
+                              <span className="font-bold bg-[#f5f5f5] px-2.5 py-1 rounded-lg border border-[#e0e0e0] text-xs">{s.classe}</span>
+                              {s.statut !== 'archive' && (
+                                <button
+                                  onClick={() => handleOpenChangeClassModal(s)}
+                                  title="Changer la classe de l'élève"
+                                  className="px-2 py-1 text-[10px] font-bold bg-white hover:bg-[#1a1a1a] hover:text-white border border-[#e0e0e0] text-[#1a1a1a] rounded-lg transition-all cursor-pointer inline-flex items-center gap-1 shadow-2xs"
+                                >
+                                  ✏️ Changer
+                                </button>
+                              )}
+                            </div>
+                          </td>
                           <td className="py-3.5 px-5">
                             <span className="bg-[#f5f5f5] text-[#1a1a1a] font-mono font-bold px-2.5 py-1 rounded-lg text-xs border border-[#e0e0e0]">
                               🔑 {s.code}
@@ -2593,6 +2675,97 @@ export default function AdminView({ user, onLogout, showToast }: AdminViewProps)
                 </div>
               </div>
             )}
+          </div>
+        </div>
+      )}
+
+      {/* CHANGE STUDENT CLASS MODAL */}
+      {isChangeClassModalOpen && selectedEleveForClassChange && (
+        <div className="fixed inset-0 bg-black/50 z-50 flex items-center justify-center p-4 backdrop-blur-xs animate-fade-in">
+          <div className="bg-white rounded-[32px] border border-[#e0e0e0] max-w-md w-full p-6 shadow-2xl space-y-5">
+            <div className="flex justify-between items-start border-b border-[#e0e0e0] pb-3">
+              <div>
+                <h3 className="font-sans font-bold text-base text-[#1a1a1a] tracking-tight flex items-center gap-2">
+                  <GraduationCap size={18} className="text-[#1a1a1a]" />
+                  Changer la classe de l'élève
+                </h3>
+                <p className="text-xs text-[#9e9e9e] font-medium mt-0.5">
+                  Élève : <strong className="text-[#1a1a1a]">{selectedEleveForClassChange.nom}</strong>
+                </p>
+              </div>
+              <button
+                onClick={() => setIsChangeClassModalOpen(false)}
+                className="text-[#9e9e9e] hover:text-[#1a1a1a] p-1 rounded-lg transition-colors cursor-pointer"
+              >
+                <X size={18} />
+              </button>
+            </div>
+
+            <form onSubmit={handleSaveStudentClassChange} className="space-y-4">
+              <div className="bg-[#f5f5f5] p-3 rounded-2xl border border-[#e0e0e0] text-xs text-[#1a1a1a] flex justify-between items-center">
+                <span className="text-[#9e9e9e] font-semibold">Classe actuelle :</span>
+                <span className="font-bold bg-white px-2.5 py-1 rounded-lg border border-[#e0e0e0]">
+                  {selectedEleveForClassChange.classe || 'Non attribuée'}
+                </span>
+              </div>
+
+              <div>
+                <label className="block text-[9px] font-bold text-[#9e9e9e] uppercase tracking-widest mb-1.5">
+                  Nouvelle Classe d'Affectation
+                </label>
+                <select
+                  value={newClasseInput}
+                  onChange={(e) => setNewClasseInput(e.target.value)}
+                  className="w-full px-3.5 py-2.5 border border-[#e0e0e0] rounded-xl text-xs bg-white text-[#1a1a1a] font-semibold focus:outline-none focus:border-[#1a1a1a]"
+                >
+                  {Array.from(new Set([
+                    ...classesList,
+                    '6e A', '6e B', '5e A', '5e B', '4e A', '4e B', '3e A', '3e B', '2nde A', '2nde C', '1ère A', '1ère D', 'Tle A', 'Tle D'
+                  ])).map((cls) => (
+                    <option key={cls} value={cls}>
+                      {cls}
+                    </option>
+                  ))}
+                  <option value="autre">➕ Saisir une autre classe...</option>
+                </select>
+              </div>
+
+              {newClasseInput === 'autre' && (
+                <div>
+                  <label className="block text-[9px] font-bold text-[#9e9e9e] uppercase tracking-widest mb-1">
+                    Nom de la Classe Personnalisée
+                  </label>
+                  <input
+                    type="text"
+                    required
+                    placeholder="Ex: Terminale C, 3e C..."
+                    value={customClasseInput}
+                    onChange={(e) => setCustomClasseInput(e.target.value)}
+                    className="w-full px-3.5 py-2 border border-[#e0e0e0] rounded-xl text-xs bg-white text-[#1a1a1a] focus:outline-none focus:border-[#1a1a1a]"
+                  />
+                </div>
+              )}
+
+              <p className="text-[11px] text-[#9e9e9e] font-medium leading-relaxed bg-blue-50/60 p-2.5 rounded-xl border border-blue-100 text-blue-900">
+                ℹ️ Ce changement mettra immédiatement à jour le bulletin, les relevés de frais scolaires et le profil du parent associé.
+              </p>
+
+              <div className="flex gap-2 justify-end pt-2">
+                <button
+                  type="button"
+                  onClick={() => setIsChangeClassModalOpen(false)}
+                  className="px-4 py-2 border border-[#e0e0e0] rounded-xl text-xs font-bold text-[#1a1a1a] hover:bg-[#f5f5f5] transition-all cursor-pointer"
+                >
+                  Annuler
+                </button>
+                <button
+                  type="submit"
+                  className="px-4 py-2 bg-[#1a1a1a] hover:bg-black text-white rounded-xl text-xs font-bold uppercase tracking-widest transition-all cursor-pointer"
+                >
+                  ✓ Enregistrer la classe
+                </button>
+              </div>
+            </form>
           </div>
         </div>
       )}

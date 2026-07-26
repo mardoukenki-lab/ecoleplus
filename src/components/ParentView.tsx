@@ -32,6 +32,10 @@ export default function ParentView({ user, onLogout, showToast }: ParentViewProp
   // Mobile drawer state
   const [isMobilePlusMenuOpen, setIsMobilePlusMenuOpen] = useState(false);
 
+  // Email notifications state
+  const [emailNotifsEnabled, setEmailNotifsEnabled] = useState(true);
+  const [selectedEmailSample, setSelectedEmailSample] = useState<{ title: string; subject: string; date: string; contentHtml: string } | null>(null);
+
   // Initialize Service Worker & check initial push notification permission status
   useEffect(() => {
     initServiceWorker();
@@ -723,6 +727,100 @@ export default function ParentView({ user, onLogout, showToast }: ParentViewProp
 
               {activeTab === 'notifications' && (
                 <div className="space-y-6">
+                  {/* EMAIL NOTIFICATIONS CARD */}
+                  <div className="bg-white rounded-[24px] border border-[#e0e0e0] p-6 shadow-sm space-y-4">
+                    <div className="flex flex-wrap justify-between items-center gap-4 border-b border-[#e0e0e0]/60 pb-4">
+                      <div>
+                        <div className="flex items-center gap-2">
+                          <h3 className="font-bold text-xs text-[#1a1a1a] uppercase tracking-wider flex items-center gap-1.5">
+                            <Mail size={14} className="text-[#1a1a1a]" /> Notifications Automatiques par Email (SMTP / Cloud Mail)
+                          </h3>
+                          <span className={`text-[10px] font-bold px-2.5 py-0.5 rounded-full border ${
+                            emailNotifsEnabled
+                              ? 'bg-emerald-50 text-emerald-800 border-emerald-200'
+                              : 'bg-rose-50 text-rose-800 border-rose-200'
+                          }`}>
+                            {emailNotifsEnabled ? '● Emails Activés' : '✕ Emails Désactivés'}
+                          </span>
+                        </div>
+                        <p className="text-xs text-[#9e9e9e] mt-1 font-medium">
+                          Transmises à l'adresse officielle : <strong className="text-[#1a1a1a]">{user.email || 'parent@ecoleplus.ci'}</strong> (Absences, Bulletins, Observations, Frais)
+                        </p>
+                      </div>
+
+                      <div className="flex items-center gap-2">
+                        <button
+                          onClick={() => {
+                            setEmailNotifsEnabled(!emailNotifsEnabled);
+                            showToast(
+                              !emailNotifsEnabled
+                                ? '📧 Notifications Email activées pour votre adresse !'
+                                : '⚠️ Notifications Email suspendues.'
+                            );
+                          }}
+                          className={`px-4 py-2 rounded-xl text-xs font-bold transition-all cursor-pointer ${
+                            emailNotifsEnabled
+                              ? 'bg-emerald-600 hover:bg-emerald-700 text-white'
+                              : 'bg-[#f5f5f5] text-[#1a1a1a] border border-[#e0e0e0]'
+                          }`}
+                        >
+                          {emailNotifsEnabled ? '✓ Notification Email Actives' : 'Activer les e-mails'}
+                        </button>
+                        <button
+                          onClick={() => {
+                            setSelectedEmailSample({
+                              title: `Notification Scolaire — ${selectedKid?.nom || 'Élève'}`,
+                              subject: `[ÉcolePlus] Alerte officielle concernant ${selectedKid?.nom || 'votre enfant'}`,
+                              date: new Date().toLocaleString('fr-FR'),
+                              contentHtml: `
+                                <div style="font-family: Arial, sans-serif; max-width: 600px; margin: 0 auto; border: 1px solid #e0e0e0; border-radius: 16px; overflow: hidden; background: #ffffff;">
+                                  <div style="background: #1a1a1a; color: #ffffff; padding: 24px; text-align: center;">
+                                    <h2 style="margin: 0; font-size: 20px; font-weight: 700;">🏫 ÉcolePlus — Côte d'Ivoire</h2>
+                                    <p style="margin: 4px 0 0 0; font-size: 12px; color: #9e9e9e;">Notification Officielle à l'Attention du Parent</p>
+                                  </div>
+                                  <div style="padding: 24px; color: #1a1a1a; line-height: 1.6; font-size: 14px;">
+                                    <p style="margin-top: 0;">Bonjour M./Mme <strong>${user.nom}</strong>,</p>
+                                    <p>Nous vous informons qu'une nouvelle mise à jour a été enregistrée dans le dossier scolaire de votre enfant <strong>${selectedKid?.nom || 'votre enfant'}</strong> (${selectedKid?.classe || 'Classe'}).</p>
+                                    <div style="background: #f8f9fa; border-left: 4px solid #1a1a1a; padding: 16px; border-radius: 8px; margin: 20px 0;">
+                                      <strong style="display: block; margin-bottom: 6px; text-transform: uppercase; font-size: 11px; color: #6c757d;">RÉSUMÉ DE L'ALERTE :</strong>
+                                      <p style="margin: 0; font-weight: 600;">Saisie d'une observation par l'équipe pédagogique & mise à jour du carnet de suivi.</p>
+                                    </div>
+                                    <p style="font-size: 12px; color: #6c757d;">Vous pouvez consulter le relevé complet et échanger directement avec l'établissement depuis votre espace parent ÉcolePlus.</p>
+                                    <div style="text-align: center; margin-top: 28px;">
+                                      <a href="#" style="background: #1a1a1a; color: #ffffff; padding: 12px 24px; border-radius: 10px; text-decoration: none; font-weight: bold; font-size: 13px; display: inline-block;">Accéder à mon Espace Parent</a>
+                                    </div>
+                                  </div>
+                                  <div style="background: #f5f5f5; padding: 16px; text-align: center; font-size: 11px; color: #9e9e9e; border-top: 1px solid #e0e0e0;">
+                                    Ce courriel automatique a été envoyé à <strong>${user.email || 'parent@ecoleplus.ci'}</strong>.<br/>© 2026 ÉcolePlus — Gestion Scolaire & Suivi Parent.
+                                  </div>
+                                </div>
+                              `
+                            });
+                            showToast('📧 Génération d\'un aperçu de l\'e-mail de notification !');
+                          }}
+                          className="border border-[#e0e0e0] hover:bg-[#f5f5f5] text-[#1a1a1a] px-3.5 py-2 rounded-xl text-xs font-semibold transition-all flex items-center gap-1.5 cursor-pointer"
+                        >
+                          <Mail size={14} /> Aperçu E-mail Reçu
+                        </button>
+                      </div>
+                    </div>
+
+                    <div className="grid grid-cols-1 md:grid-cols-3 gap-3 pt-1 text-[11px] text-[#9e9e9e] font-medium">
+                      <div className="flex items-center gap-2 bg-[#f5f5f5]/50 p-2.5 rounded-xl border border-[#e0e0e0]/50">
+                        <span className="text-base">📧</span>
+                        <span><strong>Récapitulatif de Notes :</strong> Copie e-mail envoyée lors de chaque saisie de devoir ou compo.</span>
+                      </div>
+                      <div className="flex items-center gap-2 bg-[#f5f5f5]/50 p-2.5 rounded-xl border border-[#e0e0e0]/50">
+                        <span className="text-base">📌</span>
+                        <span><strong>Signalement d'Absence :</strong> Notification e-mail immédiate avec motif lors de l'appel.</span>
+                      </div>
+                      <div className="flex items-center gap-2 bg-[#f5f5f5]/50 p-2.5 rounded-xl border border-[#e0e0e0]/50">
+                        <span className="text-base">💳</span>
+                        <span><strong>Reçus de Paiement :</strong> Reçu électronique au format PDF joint par courriel dès encaissement.</span>
+                      </div>
+                    </div>
+                  </div>
+
                   {/* Web Push API & Service Worker Status Card */}
                   <div className="bg-white rounded-[24px] border border-[#e0e0e0] p-6 shadow-sm space-y-4">
                     <div className="flex flex-wrap justify-between items-center gap-4 border-b border-[#e0e0e0]/60 pb-4">
@@ -915,6 +1013,45 @@ export default function ParentView({ user, onLogout, showToast }: ParentViewProp
                 className="text-xs font-bold text-gray-700 flex items-center gap-1 py-2"
               >
                 <LogOut size={14} /> Déconnexion
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+      {/* EMAIL PREVIEW MODAL */}
+      {selectedEmailSample && (
+        <div className="fixed inset-0 bg-black/60 z-50 flex items-center justify-center p-4 overflow-y-auto">
+          <div className="bg-white rounded-3xl max-w-2xl w-full p-6 space-y-4 shadow-2xl relative animate-in fade-in zoom-in-95">
+            <div className="flex items-center justify-between border-b border-[#e0e0e0] pb-3">
+              <div className="flex items-center gap-2">
+                <Mail size={18} className="text-[#1a1a1a]" />
+                <div>
+                  <h3 className="font-bold text-sm text-[#1a1a1a]">{selectedEmailSample.title}</h3>
+                  <p className="text-[11px] text-[#9e9e9e]">Destinataire : {user.email || 'parent@ecoleplus.ci'} · {selectedEmailSample.date}</p>
+                </div>
+              </div>
+              <button
+                onClick={() => setSelectedEmailSample(null)}
+                className="p-1.5 rounded-full hover:bg-[#f5f5f5] text-[#9e9e9e] hover:text-[#1a1a1a] transition-all cursor-pointer"
+              >
+                <X size={18} />
+              </button>
+            </div>
+
+            <div className="bg-[#f5f5f5] p-3 rounded-xl border border-[#e0e0e0] text-xs font-mono text-[#1a1a1a]">
+              <strong>Objet :</strong> {selectedEmailSample.subject}
+            </div>
+
+            <div className="border border-[#e0e0e0] rounded-2xl overflow-hidden bg-white max-h-[60vh] overflow-y-auto">
+              <div dangerouslySetInnerHTML={{ __html: selectedEmailSample.contentHtml }} />
+            </div>
+
+            <div className="flex justify-end pt-2">
+              <button
+                onClick={() => setSelectedEmailSample(null)}
+                className="bg-[#1a1a1a] hover:bg-black text-white px-5 py-2.5 rounded-xl text-xs font-bold transition-all cursor-pointer"
+              >
+                Fermer l'Aperçu
               </button>
             </div>
           </div>

@@ -1,6 +1,6 @@
 import React, { useState, useEffect } from 'react';
 import { db } from '../lib/firebase';
-import { collection, onSnapshot, doc, setDoc, deleteDoc } from 'firebase/firestore';
+import { collection, onSnapshot, doc, setDoc, updateDoc, deleteDoc } from 'firebase/firestore';
 import { Eleve, UserProfile } from '../types';
 import { Users, Plus, ChevronRight, User, Search, GraduationCap, Trash2 } from 'lucide-react';
 
@@ -109,6 +109,20 @@ export default function ClassesView({ currentUser, studentsList, showToast }: Cl
     } catch (err: any) {
       console.error('Error deleting student:', err);
       showToast('❌ Échec de la suppression de l\'élève.');
+    }
+  };
+
+  const handleChangeStudentClass = async (student: Eleve) => {
+    const targetClass = window.prompt(`Transférer "${student.nom}" dans une autre classe. Saisissez la nouvelle classe :`, student.classe);
+    if (!targetClass || !targetClass.trim() || targetClass.trim() === student.classe) return;
+    
+    const cleanClass = targetClass.trim();
+    try {
+      await updateDoc(doc(db, 'eleves', student.id), { classe: cleanClass });
+      showToast(`🔄 "${student.nom}" a été transféré de ${student.classe} vers ${cleanClass}.`);
+    } catch (err: any) {
+      console.error('Error changing student class:', err);
+      showToast('❌ Échec du changement de classe.');
     }
   };
 
@@ -266,13 +280,22 @@ export default function ClassesView({ currentUser, studentsList, showToast }: Cl
                     </td>
                     {currentUser.role === 'admin' && (
                       <td className="py-3 px-4 text-right">
-                        <button
-                          onClick={() => handleDeleteStudent(s)}
-                          title="Supprimer l'élève"
-                          className="p-1.5 text-red-500 hover:text-red-700 hover:bg-red-50 rounded-lg transition-colors cursor-pointer"
-                        >
-                          <Trash2 size={15} />
-                        </button>
+                        <div className="flex items-center justify-end gap-1.5">
+                          <button
+                            onClick={() => handleChangeStudentClass(s)}
+                            title="Changer de classe"
+                            className="px-2 py-1 text-[10px] font-bold bg-[#f5f5f5] hover:bg-[#1a1a1a] hover:text-white border border-[#e0e0e0] text-[#1a1a1a] rounded-lg transition-all cursor-pointer"
+                          >
+                            ✏️ Changer classe
+                          </button>
+                          <button
+                            onClick={() => handleDeleteStudent(s)}
+                            title="Supprimer l'élève"
+                            className="p-1.5 text-red-500 hover:text-red-700 hover:bg-red-50 rounded-lg transition-colors cursor-pointer"
+                          >
+                            <Trash2 size={15} />
+                          </button>
+                        </div>
                       </td>
                     )}
                   </tr>

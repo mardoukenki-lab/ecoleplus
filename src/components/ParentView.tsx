@@ -77,7 +77,7 @@ export default function ParentView({ user, onLogout, showToast }: ParentViewProp
     }, (err) => console.warn('Parent kids listener notice:', err));
 
     // Load parent alerts in real time
-    const qNotifs = query(collection(db, 'notifications'), where('userUid', 'in', [user.uid, 'all']));
+    const qNotifs = query(collection(db, 'notifications'), where('userUid', 'in', [user.uid, 'all', 'target_parent']));
     const unsubNotifs = onSnapshot(qNotifs, (snap) => {
       if (!isInitialNotifs.current) {
         snap.docChanges().forEach((change) => {

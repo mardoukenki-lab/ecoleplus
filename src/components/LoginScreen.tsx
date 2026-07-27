@@ -63,27 +63,9 @@ export default function LoginScreen({ onLoginSuccess, onShowProfReg, onShowParen
 
     setLoading(true);
     try {
-      let uid = '';
-      try {
-        // Authenticate with Firebase Auth using provided credentials
-        const userCred = await signInWithEmailAndPassword(auth, lowerEmail, password);
-        uid = userCred.user.uid;
-      } catch (authErr: any) {
-        if (isAdminEmail && (authErr.code === 'auth/user-not-found' || authErr.code === 'auth/invalid-credential')) {
-          try {
-            const newAdminCred = await createUserWithEmailAndPassword(auth, lowerEmail, password);
-            uid = newAdminCred.user.uid;
-          } catch (createErr: any) {
-            if (createErr.code === 'auth/email-already-in-use') {
-              throw authErr;
-            } else {
-              throw createErr;
-            }
-          }
-        } else {
-          throw authErr;
-        }
-      }
+      // Authenticate with Firebase Auth using provided credentials
+      const userCred = await signInWithEmailAndPassword(auth, lowerEmail, password);
+      const uid = userCred.user.uid;
 
       // Get user document
       let userDoc = null;

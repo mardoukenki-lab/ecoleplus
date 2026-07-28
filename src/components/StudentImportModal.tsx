@@ -1,7 +1,7 @@
 import React, { useState, useRef } from 'react';
 import * as XLSX from 'xlsx';
 import { db } from '../lib/firebase';
-import { doc, setDoc } from 'firebase/firestore';
+import { doc, setDoc, collection, onSnapshot } from 'firebase/firestore';
 import { Eleve, Paiement } from '../types';
 import { Upload, FileSpreadsheet, Download, Check, AlertTriangle, X, Plus, FileText, RefreshCw } from 'lucide-react';
 
@@ -30,8 +30,23 @@ export default function StudentImportModal({ isOpen, onClose, showToast, onSucce
   const [importing, setImporting] = useState(false);
   const [defaultClasse, setDefaultClasse] = useState('6e A');
   const [manualText, setManualText] = useState('');
+  const [classFees, setClassFees] = useState<Map<string, number>>(new Map());
 
   const fileInputRef = useRef<HTMLInputElement>(null);
+
+  React.useEffect(() => {
+    const unsub = onSnapshot(collection(db, 'classes'), (snap) => {
+      const fees = new Map<string, number>();
+      snap.forEach((d) => {
+        const data = d.data();
+        if (data.name) {
+          fees.set(data.name.trim().toLowerCase(), data.scolarite ?? 0);
+        }
+      });
+      setClassFees(fees);
+    }, (err) => console.warn('Class fees listener notice:', err));
+    return () => unsub();
+  }, []);
 
   if (!isOpen) return null;
 
@@ -222,15 +237,18 @@ export default function StudentImportModal({ isOpen, onClose, showToast, onSucce
         await setDoc(doc(db, 'eleves', eleveId), newEleve);
 
         // Initialize tuition record (paiement)
+        const feeKey = (student.classe || '').trim().toLowerCase();
+        const montantScolarite = classFees.get(feeKey) ?? 0;
+
         const paiementId = 'pay_' + eleveId;
         const initialPaiement: Paiement = {
           id: paiementId,
           eleveId,
           eleveNom: newEleve.nom,
           classe: newEleve.classe,
-          total: 95000,
+          total: montantScolarite,
           paye: 0,
-          solde: 95000,
+          solde: montantScolarite,
           echeance: '30 Janvier 2025',
           historique: []
         };

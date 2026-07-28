@@ -220,6 +220,68 @@ export const onNotificationCreate = onDocumentCreated("notifications/{docId}", a
     return;
   }
 
+  if (!smtpPass) {
+    logger.error("La variable d'environnement SMTP_PASSWORD n'est pas configurée. Envoi d'email impossible.");
+    await snap.ref.update({ emailStatus: 'failed', emailError: 'SMTP non configuré' });
+    return;
+  }
+
+  // Traitement spécifique pour les annonces diffusées (multi-destinataires)
+  if (notif.type === 'annonce' && ['all', 'target_parent', 'target_prof'].includes(notif.userUid)) {
+    try {
+      let usersQuery = db.collection('users');
+      if (notif.userUid === 'target_parent') {
+        usersQuery = usersQuery.where('role', '==', 'parent');
+      } else if (notif.userUid === 'target_prof') {
+        usersQuery = usersQuery.where('role', '==', 'prof');
+      }
+
+      const usersSnap = await usersQuery.get();
+      const emails = usersSnap.docs
+        .map(d => d.data())
+        .filter(u => u.statut !== 'archive' && Boolean(u.email))
+        .map(u => u.email);
+
+      if (emails.length === 0) {
+        await snap.ref.update({ emailStatus: 'skipped', emailError: 'Aucun destinataire actif trouvé' });
+        return;
+      }
+
+      const { subject, html } = buildNotificationEmail(notif);
+      let sentCount = 0;
+      let failedCount = 0;
+      const transporter = getTransporter();
+
+      for (const email of emails) {
+        try {
+          await transporter.sendMail({
+            from: `"ÉcolePlus" <${smtpUser}>`,
+            to: email,
+            subject,
+            html
+          });
+          sentCount++;
+        } catch (e) {
+          failedCount++;
+          logger.warn(`Échec envoi annonce à ${email} :`, e.message);
+        }
+      }
+
+      await snap.ref.update({
+        emailStatus: sentCount > 0 ? 'sent' : 'failed',
+        emailRecipientCount: emails.length,
+        emailSentCount: sentCount,
+        emailFailedCount: failedCount,
+        emailSentAt: new Date().toISOString()
+      });
+      return;
+    } catch (e) {
+      logger.error(`Erreur lors de la diffusion de l'annonce ${snap.id}:`, e);
+      await snap.ref.update({ emailStatus: 'failed', emailError: e.message });
+      return;
+    }
+  }
+
   // Résolution de l'adresse destinataire (destinataireEmail ou parentEmail ou recherche utilisateur)
   let recipientEmail = notif.destinataireEmail || notif.parentEmail;
   if (!recipientEmail && notif.userUid && !['all', 'target_parent', 'target_prof'].includes(notif.userUid)) {
@@ -235,12 +297,6 @@ export const onNotificationCreate = onDocumentCreated("notifications/{docId}", a
 
   if (!recipientEmail) {
     await snap.ref.update({ emailStatus: 'failed', emailError: 'Adresse e-mail manquante' });
-    return;
-  }
-
-  if (!smtpPass) {
-    logger.error("La variable d'environnement SMTP_PASSWORD n'est pas configurée. Envoi d'email impossible.");
-    await snap.ref.update({ emailStatus: 'failed', emailError: 'SMTP non configuré' });
     return;
   }
 

@@ -9,6 +9,7 @@ export interface UserProfile {
   archivedBy?: string;
   tel: string;
   matiere?: string;
+  classe?: string;
   etablissement?: string;
   enfants?: { nom: string; classe: string; matricule: string }[];
   createdAt: string;
@@ -31,7 +32,7 @@ export interface Eleve {
 
 export interface AuditLog {
   id: string;
-  action: 'eleve_archive' | 'eleve_restore' | 'eleve_delete' | 'prof_deactivate' | 'prof_reactivate' | 'prof_delete';
+  action: 'eleve_archive' | 'eleve_restore' | 'eleve_delete' | 'prof_deactivate' | 'prof_reactivate' | 'prof_delete' | 'prof_class_change';
   targetId: string;
   targetNom?: string;
   targetName?: string;

@@ -1,6 +1,6 @@
 import React, { useState, useEffect, useMemo } from 'react';
 import { db, handleFirestoreError, OperationType } from '../lib/firebase';
-import { collection, query, where, getDocs, doc, setDoc, updateDoc, deleteDoc, onSnapshot, writeBatch } from 'firebase/firestore';
+import { collection, query, where, getDocs, getDoc, doc, setDoc, updateDoc, deleteDoc, onSnapshot, writeBatch } from 'firebase/firestore';
 import { UserProfile, Eleve, Note, Absence, CahierTexte, Paiement, Annonce, AppNotification, AuditLog } from '../types';
 import StudentImportModal from './StudentImportModal';
 import { clearAllDatabaseData, restoreDemoData } from '../lib/demoData';
@@ -31,6 +31,7 @@ export default function AdminView({ user, onLogout, showToast }: AdminViewProps)
   const [announcements, setAnnouncements] = useState<Annonce[]>([]);
   const [recentAbsences, setRecentAbsences] = useState<Absence[]>([]);
   const [firestoreClasses, setFirestoreClasses] = useState<string[]>([]);
+  const [firestoreClassesDocs, setFirestoreClassesDocs] = useState<{ id: string; name: string; scolarite?: number }[]>([]);
 
   // Dynamic classes list from Firestore classes collection + registered students
   const classesList = useMemo(() => {
@@ -84,6 +85,13 @@ export default function AdminView({ user, onLogout, showToast }: AdminViewProps)
   const [newProfEmail, setNewProfEmail] = useState('');
   const [newProfTel, setNewProfTel] = useState('');
   const [newProfMatiere, setNewProfMatiere] = useState('');
+  const [newProfClasse, setNewProfClasse] = useState('');
+
+  // Edit Teacher Class Modal state
+  const [isChangeProfClassModalOpen, setIsChangeProfClassModalOpen] = useState(false);
+  const [selectedProfForClassChange, setSelectedProfForClassChange] = useState<UserProfile | null>(null);
+  const [newProfClasseInput, setNewProfClasseInput] = useState('');
+  const [customProfClasseInput, setCustomProfClasseInput] = useState('');
 
   // Audit Log State
   const [auditLogs, setAuditLogs] = useState<AuditLog[]>([]);
@@ -210,11 +218,16 @@ export default function AdminView({ user, onLogout, showToast }: AdminViewProps)
 
     const unsubClasses = onSnapshot(collection(db, 'classes'), (snap) => {
       const list: string[] = [];
+      const docsList: { id: string; name: string; scolarite?: number }[] = [];
       snap.forEach((d) => {
         const data = d.data();
-        if (data.name) list.push(data.name);
+        if (data.name) {
+          list.push(data.name);
+          docsList.push({ id: d.id, name: data.name, scolarite: data.scolarite });
+        }
       });
       setFirestoreClasses(list);
+      setFirestoreClassesDocs(docsList);
     }, (err) => console.warn('Classes listener notice:', err));
 
     const unsubAudit = onSnapshot(collection(db, 'audit_log'), (snap) => {
@@ -303,15 +316,18 @@ export default function AdminView({ user, onLogout, showToast }: AdminViewProps)
       await setDoc(doc(db, 'eleves', eleveId), newEleve);
 
       // Create tuition fees model
+      const classeInfo = firestoreClassesDocs.find(c => c.name.trim() === newEleveClasse.trim());
+      const montantScolarite = classeInfo?.scolarite ?? 0;
+
       const paiementId = 'pay_' + eleveId;
       const initialPaiement: Paiement = {
         id: paiementId,
         eleveId,
         eleveNom: newEleve.nom,
         classe: newEleve.classe,
-        total: 95000,
+        total: montantScolarite,
         paye: 0,
-        solde: 95000,
+        solde: montantScolarite,
         echeance: '30 Janvier 2025',
         historique: []
       };
@@ -340,7 +356,7 @@ export default function AdminView({ user, onLogout, showToast }: AdminViewProps)
 
     const numMontant = parseFloat(payMontant) || 0;
     const currentPay = payments.find(p => p.eleveId === payEleveId);
-    const total = currentPay ? currentPay.total : (student.scolariteTotal || 95000);
+    const total = currentPay ? currentPay.total : (student.scolariteTotal || 0);
     const prevPaye = currentPay ? currentPay.paye : (student.scolaritePayee || 0);
     const newPaye = prevPaye + numMontant;
     const newSolde = Math.max(0, total - newPaye);
@@ -436,6 +452,74 @@ export default function AdminView({ user, onLogout, showToast }: AdminViewProps)
     }
   };
 
+  const handleOpenChangeProfClassModal = (prof: UserProfile) => {
+    setSelectedProfForClassChange(prof);
+    setNewProfClasseInput(prof.classe || (classesList.length > 0 ? classesList[0] : '6e A'));
+    setCustomProfClasseInput('');
+    setIsChangeProfClassModalOpen(true);
+  };
+
+  const handleSaveProfClassChange = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!selectedProfForClassChange) return;
+
+    const targetClass = newProfClasseInput === 'sans' ? '' : (newProfClasseInput === 'autre' ? customProfClasseInput.trim() : newProfClasseInput.trim());
+    const profUid = selectedProfForClassChange.uid;
+    const oldClasse = selectedProfForClassChange.classe || 'Non attribuée';
+
+    try {
+      // 1. Update user profile in Firestore
+      await updateDoc(doc(db, 'users', profUid), {
+        classe: targetClass || null,
+        updatedClassAt: new Date().toISOString()
+      });
+
+      // 2. If targetClass assigned, sync with classes collection
+      if (targetClass) {
+        const classDocId = targetClass.toLowerCase().replace(/[\s/]+/g, '_');
+        await setDoc(doc(db, 'classes', classDocId), {
+          name: targetClass,
+          titulaireUid: profUid,
+          titulaireNom: selectedProfForClassChange.nom,
+          updatedAt: new Date().toISOString()
+        }, { merge: true });
+      }
+
+      // 3. If teacher had a previous class, unassign titulaire from that old class if needed
+      if (oldClasse && oldClasse !== 'Non attribuée' && oldClasse !== targetClass) {
+        const oldClassDocId = oldClasse.toLowerCase().replace(/[\s/]+/g, '_');
+        try {
+          const oldDocRef = doc(db, 'classes', oldClassDocId);
+          const oldSnap = await getDoc(oldDocRef);
+          if (oldSnap.exists() && oldSnap.data()?.titulaireUid === profUid) {
+            await updateDoc(oldDocRef, { titulaireUid: null, titulaireNom: null });
+          }
+        } catch (e) {
+          console.warn('Notice unassigning old class titulaire:', e);
+        }
+      }
+
+      await addAuditLog(
+        'prof_class_change' as any,
+        profUid,
+        selectedProfForClassChange.nom,
+        'prof',
+        `Attribution de classe : ${oldClasse} ➔ ${targetClass || 'Aucune classe'}`
+      );
+
+      showToast(
+        targetClass
+          ? `✅ Classe "${targetClass}" attribuée au Prof. ${selectedProfForClassChange.nom}`
+          : `ℹ️ Classe retirée pour le Prof. ${selectedProfForClassChange.nom}`
+      );
+      setIsChangeProfClassModalOpen(false);
+      setSelectedProfForClassChange(null);
+    } catch (err: any) {
+      console.error('Error changing prof class:', err);
+      showToast('❌ Échec de la modification de la classe du professeur.');
+    }
+  };
+
   const handleInviteProf = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!newProfNom || !newProfEmail) {
@@ -453,18 +537,29 @@ export default function AdminView({ user, onLogout, showToast }: AdminViewProps)
       role: 'prof',
       status: 'active',
       matiere: newProfMatiere || 'Général',
+      classe: newProfClasse.trim() || undefined,
       etablissement: 'Lycée Moderne',
       createdAt: new Date().toISOString()
     };
 
     try {
       await setDoc(doc(db, 'users', profUid), profProfile, { merge: true });
+      if (newProfClasse.trim()) {
+        const classDocId = newProfClasse.trim().toLowerCase().replace(/[\s/]+/g, '_');
+        await setDoc(doc(db, 'classes', classDocId), {
+          name: newProfClasse.trim(),
+          titulaireUid: profUid,
+          titulaireNom: newProfNom,
+          updatedAt: new Date().toISOString()
+        }, { merge: true });
+      }
       showToast(`👨‍🏫 Enseignant ${newProfNom} ajouté et pré-activé dans l'annuaire !`);
       setIsProfModalOpen(false);
       setNewProfNom('');
       setNewProfEmail('');
       setNewProfTel('');
       setNewProfMatiere('');
+      setNewProfClasse('');
     } catch (err) {
       console.error(err);
       showToast('❌ Échec de l\'invitation de l\'enseignant.');
@@ -556,9 +651,14 @@ export default function AdminView({ user, onLogout, showToast }: AdminViewProps)
         userUid: targetUid,
         icon: '📣',
         bg: 'bg-blue-100 text-blue-700',
-        text: `Annonce [${newAnnonceDest}] : ${newAnnonceObjet}`,
+        title: newAnnonceObjet,
+        text: `Annonce [${newAnnonceDest}] : ${newAnnonceObjet}\n\n${newAnnonceMsg}`,
         time: 'à l\'instant',
         unread: true,
+        type: 'annonce',
+        annonceDestinataire: newAnnonceDest,
+        emailStatus: 'pending',
+        pushSent: true,
         createdAt: new Date().toISOString()
       });
 
@@ -1636,9 +1736,21 @@ export default function AdminView({ user, onLogout, showToast }: AdminViewProps)
                       <div className="text-xs text-[#9e9e9e] space-y-1 pt-2 border-t border-[#f0f0f0]">
                         <div>Email : {prof.email}</div>
                         <div>Tél : {prof.tel}</div>
+                        <div className="flex items-center gap-1.5 pt-1">
+                          <span className="font-semibold text-[#1a1a1a]">Classe assignée :</span>
+                          {prof.classe ? (
+                            <span className="bg-emerald-50 text-emerald-800 border border-emerald-200 px-2 py-0.5 rounded text-[10px] font-bold">
+                              🎓 {prof.classe}
+                            </span>
+                          ) : (
+                            <span className="bg-gray-100 text-gray-600 px-2 py-0.5 rounded text-[10px] font-medium italic">
+                              Non attribuée
+                            </span>
+                          )}
+                        </div>
                       </div>
 
-                      <div className="flex items-center justify-end gap-2 pt-2 border-t border-[#f0f0f0]">
+                      <div className="flex flex-wrap items-center justify-end gap-2 pt-2 border-t border-[#f0f0f0]">
                         {prof.statut === 'archive' ? (
                           <>
                             <button
@@ -1655,12 +1767,20 @@ export default function AdminView({ user, onLogout, showToast }: AdminViewProps)
                             </button>
                           </>
                         ) : (
-                          <button
-                            onClick={() => handleOpenArchiveModal(prof, 'prof')}
-                            className="px-3 py-1.5 bg-amber-50 text-amber-800 border border-amber-200 hover:bg-amber-100 rounded-xl text-xs font-bold flex items-center gap-1 transition-all cursor-pointer"
-                          >
-                            <Archive size={14} /> Désactiver
-                          </button>
+                          <>
+                            <button
+                              onClick={() => handleOpenChangeProfClassModal(prof)}
+                              className="px-2.5 py-1.5 bg-[#f5f5f5] hover:bg-[#1a1a1a] hover:text-white border border-[#e0e0e0] text-[#1a1a1a] rounded-xl text-xs font-bold flex items-center gap-1 transition-all cursor-pointer"
+                            >
+                              ✏️ Attribuer / Changer classe
+                            </button>
+                            <button
+                              onClick={() => handleOpenArchiveModal(prof, 'prof')}
+                              className="px-2.5 py-1.5 bg-amber-50 text-amber-800 border border-amber-200 hover:bg-amber-100 rounded-xl text-xs font-bold flex items-center gap-1 transition-all cursor-pointer"
+                            >
+                              <Archive size={14} /> Désactiver
+                            </button>
+                          </>
                         )}
                       </div>
                     </div>
@@ -1679,6 +1799,7 @@ export default function AdminView({ user, onLogout, showToast }: AdminViewProps)
                     <tr className="border-b border-[#e0e0e0] text-[10px] font-bold uppercase tracking-widest text-[#9e9e9e] bg-[#f5f5f5]/30">
                       <th className="py-3 px-5">Professeur</th>
                       <th className="py-3 px-5">Matière Enseignée</th>
+                      <th className="py-3 px-5">Classe Assignée</th>
                       <th className="py-3 px-5">Téléphone</th>
                       <th className="py-3 px-5">Email</th>
                       <th className="py-3 px-5">Statut</th>
@@ -1697,6 +1818,17 @@ export default function AdminView({ user, onLogout, showToast }: AdminViewProps)
                             {prof.nom}
                           </td>
                           <td className="py-3.5 px-5 text-[#1a1a1a] font-semibold">{prof.matiere || 'Multi-matières'}</td>
+                          <td className="py-3.5 px-5">
+                            {prof.classe ? (
+                              <span className="bg-emerald-50 text-emerald-800 border border-emerald-200 px-2.5 py-1 rounded-lg text-xs font-bold inline-flex items-center gap-1">
+                                🎓 {prof.classe}
+                              </span>
+                            ) : (
+                              <span className="bg-gray-50 text-gray-500 border border-gray-200 px-2 py-0.5 rounded text-[11px] font-medium italic">
+                                Non attribuée
+                              </span>
+                            )}
+                          </td>
                           <td className="py-3.5 px-5 text-[#9e9e9e] font-mono font-semibold">{prof.tel}</td>
                           <td className="py-3.5 px-5 text-[#9e9e9e] font-medium">{prof.email}</td>
                           <td className="py-3.5 px-5">
@@ -1725,13 +1857,22 @@ export default function AdminView({ user, onLogout, showToast }: AdminViewProps)
                                 </button>
                               </div>
                             ) : (
-                              <button
-                                onClick={() => handleOpenArchiveModal(prof, 'prof')}
-                                title="Désactiver / Archiver le professeur"
-                                className="px-2.5 py-1 bg-amber-50 text-amber-800 border border-amber-200 hover:bg-amber-100 rounded-lg transition-colors cursor-pointer text-[11px] font-bold flex items-center gap-1"
-                              >
-                                <Archive size={13} /> Désactiver
-                              </button>
+                              <div className="flex items-center justify-end gap-1.5">
+                                <button
+                                  onClick={() => handleOpenChangeProfClassModal(prof)}
+                                  title="Attribuer ou changer la classe du professeur"
+                                  className="px-2.5 py-1 bg-[#f5f5f5] hover:bg-[#1a1a1a] hover:text-white border border-[#e0e0e0] text-[#1a1a1a] rounded-lg transition-colors cursor-pointer text-[11px] font-bold flex items-center gap-1"
+                                >
+                                  ✏️ Classer / Changer classe
+                                </button>
+                                <button
+                                  onClick={() => handleOpenArchiveModal(prof, 'prof')}
+                                  title="Désactiver / Archiver le professeur"
+                                  className="px-2.5 py-1 bg-amber-50 text-amber-800 border border-amber-200 hover:bg-amber-100 rounded-lg transition-colors cursor-pointer text-[11px] font-bold flex items-center gap-1"
+                                >
+                                  <Archive size={13} /> Désactiver
+                                </button>
+                              </div>
                             )}
                           </td>
                         </tr>
@@ -2102,16 +2243,22 @@ export default function AdminView({ user, onLogout, showToast }: AdminViewProps)
               <div>
                 <label className="block text-[9px] font-bold text-[#9e9e9e] uppercase tracking-widest mb-1">Classe d'intégration</label>
                 <select 
-                  className="w-full px-3 py-2 border border-[#e0e0e0] rounded-xl text-xs bg-white focus:outline-none text-[#1a1a1a]"
+                  className="w-full px-3 py-2 border border-[#e0e0e0] rounded-xl text-xs bg-white focus:outline-none text-[#1a1a1a] font-semibold"
                   value={newEleveClasse}
                   onChange={(e) => setNewEleveClasse(e.target.value)}
                 >
-                  <option>6e A</option>
-                  <option>6e B</option>
-                  <option>5e B</option>
-                  <option>5e C</option>
-                  <option>4e C</option>
-                  <option>3e A</option>
+                  {Array.from(new Set([
+                    ...classesList,
+                    '6e A', '6e B', '5e A', '5e B', '4e A', '4e B', '3e A', '3e B', '2nde A', '2nde C', '1ère A', '1ère D', 'Tle A', 'Tle D'
+                  ])).map((clsName) => {
+                    const clsDoc = firestoreClassesDocs.find(c => c.name.trim() === clsName.trim());
+                    const fee = clsDoc?.scolarite ?? 0;
+                    return (
+                      <option key={clsName} value={clsName}>
+                        {clsName} — {fee ? `${fee.toLocaleString('fr-FR')} FCFA` : 'Scolarité non définie'}
+                      </option>
+                    );
+                  })}
                 </select>
               </div>
               <div className="flex gap-2 justify-end pt-3">
@@ -2272,12 +2419,120 @@ export default function AdminView({ user, onLogout, showToast }: AdminViewProps)
                   placeholder="07 00 00 00 00" 
                 />
               </div>
+              <div>
+                <label className="block text-[9px] font-bold text-[#9e9e9e] uppercase tracking-widest mb-1">Classe Titulaire / Assignée (Optionnel)</label>
+                <select 
+                  value={newProfClasse}
+                  onChange={(e) => setNewProfClasse(e.target.value)}
+                  className="w-full px-3 py-2 border border-[#e0e0e0] rounded-xl text-xs bg-white focus:outline-none focus:border-[#1a1a1a] text-[#1a1a1a] font-semibold" 
+                >
+                  <option value="">-- Aucune classe attribuée pour le moment --</option>
+                  {Array.from(new Set([
+                    ...classesList,
+                    '6e A', '6e B', '5e A', '5e B', '4e A', '4e B', '3e A', '3e B', '2nde A', '2nde C', '1ère A', '1ère D', 'Tle A', 'Tle D'
+                  ])).map((cls) => (
+                    <option key={cls} value={cls}>{cls}</option>
+                  ))}
+                </select>
+              </div>
               <div className="flex gap-2 justify-end pt-3">
                 <button type="button" onClick={() => setIsProfModalOpen(false)} className="px-4 py-2 border border-[#e0e0e0] rounded-xl text-xs font-bold text-[#1a1a1a] hover:bg-[#f5f5f5] transition-all cursor-pointer">
                   Annuler
                 </button>
                 <button type="submit" className="px-4 py-2 bg-[#1a1a1a] hover:bg-black text-white rounded-xl text-xs font-bold uppercase tracking-widest transition-all cursor-pointer">
                   Créer l'enseignant
+                </button>
+              </div>
+            </form>
+          </div>
+        </div>
+      )}
+
+      {/* EDIT TEACHER CLASS MODAL */}
+      {isChangeProfClassModalOpen && selectedProfForClassChange && (
+        <div className="fixed inset-0 bg-black/40 z-50 flex items-center justify-center p-4 backdrop-blur-xs">
+          <div className="bg-white rounded-[32px] border border-[#e0e0e0] max-w-md w-full p-6 shadow-2xl space-y-5">
+            <div className="flex justify-between items-start border-b border-[#e0e0e0] pb-3">
+              <div>
+                <h3 className="font-sans font-bold text-base text-[#1a1a1a] tracking-tight flex items-center gap-2">
+                  <GraduationCap size={18} className="text-[#1a1a1a]" />
+                  Attribuer / Changer la classe du professeur
+                </h3>
+                <p className="text-xs text-[#9e9e9e] font-medium mt-0.5">
+                  Professeur : <strong className="text-[#1a1a1a]">{selectedProfForClassChange.nom}</strong> ({selectedProfForClassChange.matiere || 'Enseignant'})
+                </p>
+              </div>
+              <button
+                onClick={() => setIsChangeProfClassModalOpen(false)}
+                className="text-[#9e9e9e] hover:text-[#1a1a1a] p-1 rounded-lg transition-colors cursor-pointer"
+              >
+                <X size={18} />
+              </button>
+            </div>
+
+            <form onSubmit={handleSaveProfClassChange} className="space-y-4">
+              <div className="bg-[#f5f5f5] p-3 rounded-2xl border border-[#e0e0e0] text-xs text-[#1a1a1a] flex justify-between items-center">
+                <span className="text-[#9e9e9e] font-semibold">Classe actuelle :</span>
+                <span className="font-bold bg-white px-2.5 py-1 rounded-lg border border-[#e0e0e0]">
+                  {selectedProfForClassChange.classe || 'Non attribuée'}
+                </span>
+              </div>
+
+              <div>
+                <label className="block text-[9px] font-bold text-[#9e9e9e] uppercase tracking-widest mb-1.5">
+                  Sélectionner la classe à attribuer
+                </label>
+                <select
+                  value={newProfClasseInput}
+                  onChange={(e) => setNewProfClasseInput(e.target.value)}
+                  className="w-full px-3.5 py-2.5 border border-[#e0e0e0] rounded-xl text-xs bg-white text-[#1a1a1a] font-semibold focus:outline-none focus:border-[#1a1a1a]"
+                >
+                  <option value="sans">--- Aucune classe (Non attribuée) ---</option>
+                  {Array.from(new Set([
+                    ...classesList,
+                    '6e A', '6e B', '5e A', '5e B', '4e A', '4e B', '3e A', '3e B', '2nde A', '2nde C', '1ère A', '1ère D', 'Tle A', 'Tle D'
+                  ])).map((cls) => (
+                    <option key={cls} value={cls}>
+                      {cls}
+                    </option>
+                  ))}
+                  <option value="autre">➕ Saisir une autre classe...</option>
+                </select>
+              </div>
+
+              {newProfClasseInput === 'autre' && (
+                <div>
+                  <label className="block text-[9px] font-bold text-[#9e9e9e] uppercase tracking-widest mb-1">
+                    Nom de la Classe Personnalisée
+                  </label>
+                  <input
+                    type="text"
+                    required
+                    placeholder="Ex: Terminale C, 3e C..."
+                    value={customProfClasseInput}
+                    onChange={(e) => setCustomProfClasseInput(e.target.value)}
+                    className="w-full px-3.5 py-2 border border-[#e0e0e0] rounded-xl text-xs bg-white text-[#1a1a1a] focus:outline-none focus:border-[#1a1a1a]"
+                  />
+                </div>
+              )}
+
+              <p className="text-[11px] text-[#9e9e9e] font-medium leading-relaxed bg-blue-50/60 p-2.5 rounded-xl border border-blue-100 text-blue-900">
+                ℹ️ Cette classe sera définie comme la classe titulaire / principale de cet enseignant dans tout le système scolaire.
+              </p>
+
+              <div className="flex gap-2 justify-end pt-2">
+                <button
+                  type="button"
+                  onClick={() => setIsChangeProfClassModalOpen(false)}
+                  className="px-4 py-2 border border-[#e0e0e0] rounded-xl text-xs font-bold text-[#1a1a1a] hover:bg-[#f5f5f5] transition-all cursor-pointer"
+                >
+                  Annuler
+                </button>
+                <button
+                  type="submit"
+                  className="px-4 py-2 bg-[#1a1a1a] hover:bg-black text-white rounded-xl text-xs font-bold uppercase tracking-widest transition-all cursor-pointer"
+                >
+                  ✓ Enregistrer l'attribution
                 </button>
               </div>
             </form>
@@ -2303,7 +2558,7 @@ export default function AdminView({ user, onLogout, showToast }: AdminViewProps)
                   <option value="">-- Choisir un élève --</option>
                   {students.map(s => (
                     <option key={s.id} value={s.id}>
-                      {s.nom} ({s.classe}) — Reste: {((payments.find(p => p.eleveId === s.id)?.solde) ?? (s.scolariteTotal || 95000) - (s.scolaritePayee || 0)).toLocaleString('fr-FR')} F
+                      {s.nom} ({s.classe}) — Reste: {((payments.find(p => p.eleveId === s.id)?.solde) ?? (s.scolariteTotal || 0) - (s.scolaritePayee || 0)).toLocaleString('fr-FR')} F
                     </option>
                   ))}
                 </select>

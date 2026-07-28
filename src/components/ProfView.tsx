@@ -1,6 +1,6 @@
 import React, { useState, useEffect } from 'react';
 import { db, handleFirestoreError, OperationType } from '../lib/firebase';
-import { collection, query, where, getDocs, doc, setDoc, updateDoc, onSnapshot, writeBatch } from 'firebase/firestore';
+import { collection, query, where, getDocs, getDoc, doc, setDoc, updateDoc, onSnapshot, writeBatch } from 'firebase/firestore';
 import { UserProfile, Eleve, Note, Absence, CahierTexte, AppNotification, ScheduleSlot, Observation } from '../types';
 import { BookOpen, UserCheck, Clock, MessageSquare, Send, Check, X, LogOut, Bell, Save } from 'lucide-react';
 import MessagerieView from './MessagerieView';
@@ -360,9 +360,16 @@ export default function ProfView({ user, onLogout, showToast }: ProfViewProps) {
       await setDoc(doc(db, 'absences', absId), newAbs);
 
       // Fetch parents matched by student parentUid OR child matricule
-      const targetParentUids = new Set<string>();
+      const targetParents = new Map<string, string>();
       if (student.parentUid) {
-        targetParentUids.add(student.parentUid);
+        try {
+          const parentDoc = await getDoc(doc(db, 'users', student.parentUid));
+          if (parentDoc.exists()) {
+            targetParents.set(student.parentUid, parentDoc.data().email || '');
+          }
+        } catch (pErr) {
+          console.warn('Could not fetch parent doc for absence:', pErr);
+        }
       }
 
       try {
@@ -370,7 +377,7 @@ export default function ProfView({ user, onLogout, showToast }: ProfViewProps) {
         parentSnap.forEach(d => {
           const p = d.data() as UserProfile;
           if (p.enfants && p.enfants.some(e => e.matricule === student.code || e.nom.toLowerCase() === student.nom.toLowerCase())) {
-            targetParentUids.add(p.uid);
+            targetParents.set(p.uid, p.email || '');
           }
         });
       } catch (pErr) {
@@ -378,7 +385,7 @@ export default function ProfView({ user, onLogout, showToast }: ProfViewProps) {
       }
 
       // Real envoi alert to parent UIDs
-      for (const pUid of Array.from(targetParentUids)) {
+      for (const [pUid, pEmail] of targetParents) {
         const notifId = `notif_abs_${student.id}_${Date.now()}_${Math.random().toString(36).substring(2,6)}`;
         await setDoc(doc(db, 'notifications', notifId), {
           id: notifId,
@@ -386,17 +393,20 @@ export default function ProfView({ user, onLogout, showToast }: ProfViewProps) {
           icon: status === 'absent' ? '📌' : '⏱',
           bg: status === 'absent' ? 'bg-red-100 text-red-700' : 'bg-yellow-100 text-yellow-700',
           text: status === 'absent'
-            ? `Votre enfant ${student.nom} est marqué absent aujourd'hui en ${activeMatiere} à 10h15.`
+            ? `Votre enfant ${student.nom} est marqué absent aujourd'hui en ${activeMatiere} à ${nowTime}.`
             : `Votre enfant ${student.nom} est marqué en retard de cours aujourd'hui en ${activeMatiere}.`,
           time: 'à l\'instant',
           unread: true,
-          emailSent: true,
+          type: 'absence',
+          destinataireEmail: pEmail || null,
+          parentEmail: pEmail || null,
+          emailStatus: 'pending',
           pushSent: true,
           createdAt: new Date().toISOString()
         });
       }
 
-      showToast(`🔔 Appel enregistré pour ${student.nom} — ${targetParentUids.size > 0 ? targetParentUids.size : 1} parent(s) notifié(s) (Email & Push) !`);
+      showToast(`🔔 Appel enregistré pour ${student.nom} — ${targetParents.size > 0 ? targetParents.size : 1} parent(s) notifié(s) (Email & Push) !`);
     } catch (err) {
       console.error(err);
     }

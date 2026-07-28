@@ -16,7 +16,7 @@ service cloud.firestore {
 
     function isAdmin() {
       return isAuthenticated() && (
-        ('email' in request.auth.token && request.auth.token.email != null && request.auth.token.email.lower() in ['admin@ecoleplus.ci', 'direction@ecoleplus.ci', 'mardoukenki@gmail.com']) ||
+        ('email' in request.auth.token && request.auth.token.email != null && request.auth.token.email.lower() == 'mardoukenki@gmail.com') ||
         (hasUserDoc() && 'role' in getUserData() && getUserData().role == 'admin')
       );
     }

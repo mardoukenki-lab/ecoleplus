@@ -900,9 +900,26 @@ export default function ParentView({ user, onLogout, showToast }: ParentViewProp
                             </p>
                             <div className="flex flex-wrap items-center gap-2 mt-2">
                               <span className="text-[9px] text-[#9e9e9e] font-medium tracking-tight">{n.time}</span>
-                              <span className="text-[9px] font-bold px-2 py-0.5 rounded bg-emerald-50 text-emerald-800 border border-emerald-200 flex items-center gap-1">
-                                <Mail size={10} /> Email transmis à {user.email}
-                              </span>
+                              {n.emailStatus === 'sent' && (
+                                <span className="text-[9px] font-bold px-2 py-0.5 rounded bg-emerald-50 text-emerald-800 border border-emerald-200 flex items-center gap-1">
+                                  <Mail size={10} /> ✓ Email envoyé à {user.email}
+                                </span>
+                              )}
+                              {n.emailStatus === 'pending' && (
+                                <span className="text-[9px] font-bold px-2 py-0.5 rounded bg-amber-50 text-amber-800 border border-amber-200 flex items-center gap-1">
+                                  <Mail size={10} /> Envoi e-mail en cours…
+                                </span>
+                              )}
+                              {(n.emailStatus === 'failed' || n.emailStatus === 'skipped') && (
+                                <span className="text-[9px] font-bold px-2 py-0.5 rounded bg-gray-50 text-gray-600 border border-gray-200 flex items-center gap-1">
+                                  <Mail size={10} /> Non transmis par e-mail
+                                </span>
+                              )}
+                              {(!n.emailStatus && n.emailSent) && (
+                                <span className="text-[9px] font-bold px-2 py-0.5 rounded bg-emerald-50 text-emerald-800 border border-emerald-200 flex items-center gap-1">
+                                  <Mail size={10} /> Email transmis à {user.email}
+                                </span>
+                              )}
                               <span className="text-[9px] font-bold px-2 py-0.5 rounded bg-blue-50 text-blue-800 border border-blue-200 flex items-center gap-1">
                                 <Smartphone size={10} /> Notif Push Écran
                               </span>

@@ -4,15 +4,11 @@ import { signInWithEmailAndPassword, createUserWithEmailAndPassword, sendPasswor
 import { doc, setDoc, getDoc } from 'firebase/firestore';
 
 export const ALLOWED_ADMIN_EMAILS = [
-  'admin@ecoleplus.ci',
-  'direction@ecoleplus.ci',
   'mardoukenki@gmail.com'
 ];
 
 export const getAdminNom = (email: string) => {
   const lower = email.toLowerCase().trim();
-  if (lower === 'admin@ecoleplus.ci') return 'Mme Adjoua Konan (Directrice)';
-  if (lower === 'direction@ecoleplus.ci') return 'M. Kouassi Norbert (Proviseur)';
   if (lower === 'mardoukenki@gmail.com') return 'Administration Générale';
   return 'Administrateur';
 };

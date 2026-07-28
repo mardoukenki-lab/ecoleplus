@@ -130,6 +130,146 @@ const getTransporter = () => {
 };
 
 /**
+ * Helper pour construire le contenu HTML et l'objet de l'e-mail pour une notification
+ */
+function buildNotificationEmail(notif) {
+  let subject = `ÉcolePlus — ${notif.title || "Notification"}`;
+  let typeLabel = "Notification ÉcolePlus";
+  let badgeColor = "#1a1a1a";
+  let badgeBg = "#f5f5f5";
+
+  if (notif.type === "absence") {
+    typeLabel = "Avis d'Absence / Retard";
+    badgeColor = "#c5221f";
+    badgeBg = "#fce8e6";
+    subject = `⚠️ ÉcolePlus : ${notif.title || "Avis d'absence"}`;
+  } else if (notif.type === "paiement") {
+    typeLabel = "Reçu de Paiement / Scolarité";
+    badgeColor = "#137333";
+    badgeBg = "#e6f4ea";
+    subject = `💳 ÉcolePlus : ${notif.title || "Confirmation de paiement"}`;
+  } else if (notif.type === "annonce") {
+    typeLabel = "Annonce Officielle";
+    badgeColor = "#1a73e8";
+    badgeBg = "#e8f0fe";
+    subject = `📢 ÉcolePlus : ${notif.title || "Nouvelle annonce"}`;
+  }
+
+  const html = `
+    <!DOCTYPE html>
+    <html>
+    <head>
+      <meta charset="utf-8">
+      <style>
+        body { font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif; background-color: #f5f5f5; color: #1a1a1a; margin: 0; padding: 0; -webkit-font-smoothing: antialiased; }
+        .container { max-width: 580px; margin: 40px auto; background-color: #ffffff; border: 1px solid #e0e0e0; border-radius: 24px; overflow: hidden; box-shadow: 0 4px 12px rgba(0,0,0,0.03); }
+        .header { background-color: #1a1a1a; color: #ffffff; padding: 32px 24px; text-align: center; }
+        .logo { font-size: 24px; font-weight: 800; letter-spacing: -0.5px; margin: 0; }
+        .subtitle { font-size: 10px; font-weight: 700; color: #9e9e9e; text-transform: uppercase; letter-spacing: 1.5px; margin-top: 6px; }
+        .content { padding: 36px 32px; line-height: 1.6; }
+        .badge { background-color: ${badgeBg}; color: ${badgeColor}; padding: 4px 10px; border-radius: 8px; font-weight: 700; font-size: 11px; display: inline-block; text-transform: uppercase; margin-bottom: 16px; }
+        .title { font-size: 16px; font-weight: 700; color: #1a1a1a; margin-bottom: 12px; }
+        .text { font-size: 14px; color: #424242; margin-bottom: 24px; white-space: pre-wrap; }
+        .btn-container { text-align: center; margin-top: 32px; }
+        .btn { background-color: #1a1a1a; color: #ffffff !important; text-decoration: none; padding: 12px 28px; border-radius: 12px; font-weight: 700; font-size: 13px; display: inline-block; }
+        .footer { background-color: #fafafa; padding: 20px; text-align: center; font-size: 11px; color: #9e9e9e; border-top: 1px solid #e0e0e0; }
+      </style>
+    </head>
+    <body>
+      <div class="container">
+        <div class="header">
+          <h1 class="logo">ÉcolePlus</h1>
+          <div class="subtitle">${typeLabel}</div>
+        </div>
+        <div class="content">
+          <span class="badge">${typeLabel}</span>
+          <div class="title">${notif.title || "Notification d'Information"}</div>
+          <div class="text">${notif.text || ""}</div>
+          <div class="btn-container">
+            <a href="https://ecoleplus.ci" class="btn">Consulter sur ÉcolePlus</a>
+          </div>
+        </div>
+        <div class="footer">
+          Cet e-mail automatique est transmis par le système de gestion scolaire ÉcolePlus.
+        </div>
+      </div>
+    </body>
+    </html>
+  `;
+
+  return { subject, html };
+}
+
+// Types de notification pour lesquelles un e-mail doit réellement partir
+const EMAIL_ENABLED_TYPES = ['absence', 'annonce', 'paiement'];
+
+/**
+ * Cloud Function déclenchée automatiquement lors de la création d'une notification.
+ * Envoie un e-mail réel pour les types autorisés (absence, annonce, paiement).
+ */
+export const onNotificationCreate = onDocumentCreated("notifications/{docId}", async (event) => {
+  const snap = event.data;
+  if (!snap) return;
+
+  const notif = snap.data();
+  if (!notif) return;
+
+  // Filtrer par type d'événement
+  if (!EMAIL_ENABLED_TYPES.includes(notif.type)) {
+    await snap.ref.update({ emailStatus: 'skipped' });
+    return;
+  }
+
+  // Résolution de l'adresse destinataire (destinataireEmail ou parentEmail ou recherche utilisateur)
+  let recipientEmail = notif.destinataireEmail || notif.parentEmail;
+  if (!recipientEmail && notif.userUid && !['all', 'target_parent', 'target_prof'].includes(notif.userUid)) {
+    try {
+      const userDoc = await db.collection('users').doc(notif.userUid).get();
+      if (userDoc.exists) {
+        recipientEmail = userDoc.data().email;
+      }
+    } catch (e) {
+      logger.warn(`Impossible d'obtenir l'email pour le userUid ${notif.userUid}:`, e);
+    }
+  }
+
+  if (!recipientEmail) {
+    await snap.ref.update({ emailStatus: 'failed', emailError: 'Adresse e-mail manquante' });
+    return;
+  }
+
+  if (!smtpPass) {
+    logger.error("La variable d'environnement SMTP_PASSWORD n'est pas configurée. Envoi d'email impossible.");
+    await snap.ref.update({ emailStatus: 'failed', emailError: 'SMTP non configuré' });
+    return;
+  }
+
+  const { subject, html } = buildNotificationEmail(notif);
+
+  try {
+    const transporter = getTransporter();
+    logger.info(`Envoi en cours d'e-mail de notification (${notif.type}) à ${recipientEmail}...`);
+    await transporter.sendMail({
+      from: `"ÉcolePlus" <${smtpUser}>`,
+      to: recipientEmail,
+      subject,
+      html
+    });
+    logger.info(`E-mail de notification (${notif.type}) envoyé avec succès à ${recipientEmail}.`);
+    await snap.ref.update({
+      emailStatus: 'sent',
+      emailSentAt: new Date().toISOString()
+    });
+  } catch (error) {
+    logger.error(`Échec d'envoi d'e-mail pour la notification ${snap.id} à ${recipientEmail} :`, error);
+    await snap.ref.update({
+      emailStatus: 'failed',
+      emailError: error.message || 'Erreur d\'envoi d\'e-mail'
+    });
+  }
+});
+
+/**
  * Fonction Cloud de second niveau (v2) déclenchée à la mise à jour d'un document utilisateur.
  * Détecte les changements de statut pour envoyer l'email adéquat.
  */

@@ -148,10 +148,12 @@ export async function dispatchParentNotification(params: DispatchNotificationPar
     bg: params.bg,
     title: params.title,
     text: params.text,
+    type: params.type || 'info',
     time: 'Aujourd\'hui',
     unread: true,
-    emailSent: true,
+    emailStatus: 'pending',
     pushSent: true,
+    destinataireEmail: params.parentEmail || null,
     parentEmail: params.parentEmail || null,
     createdAt: new Date().toISOString()
   };

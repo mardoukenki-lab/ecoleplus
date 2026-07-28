@@ -119,9 +119,15 @@ export interface AppNotification {
   userUid: string; // 'all' or specific user id
   icon: string;
   bg: string;
+  title?: string;
   text: string;
   time: string;
   unread: boolean;
+  type?: 'absence' | 'note' | 'paiement' | 'annonce' | 'info';
+  emailStatus?: 'pending' | 'sent' | 'failed' | 'skipped';
+  emailSent?: boolean;
+  destinataireEmail?: string | null;
+  parentEmail?: string | null;
   createdAt: string;
 }
 

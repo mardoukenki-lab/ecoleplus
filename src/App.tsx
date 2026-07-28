@@ -3,15 +3,7 @@ import { auth, db } from './lib/firebase';
 import { onAuthStateChanged, signOut } from 'firebase/auth';
 import { doc, getDoc, setDoc } from 'firebase/firestore';
 import { UserProfile } from './types';
-import LoginScreen, { ALLOWED_ADMIN_EMAILS } from './components/LoginScreen';
-
-const getAdminNom = (email: string) => {
-  const lower = email.toLowerCase().trim();
-  if (lower === 'admin@ecoleplus.ci') return 'Mme Adjoua Konan (Directrice)';
-  if (lower === 'direction@ecoleplus.ci') return 'M. Kouassi Norbert (Proviseur)';
-  if (lower === 'mardoukenki@gmail.com') return 'Administration Générale';
-  return 'Administrateur';
-};
+import LoginScreen, { ALLOWED_ADMIN_EMAILS, getAdminNom } from './components/LoginScreen';
 import ProfRegisterScreen from './components/ProfRegisterScreen';
 import ParentRegisterScreen from './components/ParentRegisterScreen';
 import AdminView from './components/AdminView';

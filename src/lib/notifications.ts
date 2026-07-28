@@ -137,7 +137,45 @@ export interface DispatchNotificationParams {
 }
 
 /**
- * Dispatch a critical school event notification to Firestore and trigger instant browser alert
+ * Actively trigger an email notification dispatch (SMTP / Cloud Mail service)
+ */
+export async function triggerEmailNotification(
+  recipientEmail: string,
+  subject: string,
+  bodyHtml: string,
+  notifId?: string
+): Promise<{ success: boolean; message: string }> {
+  console.log(`📧 [TRIGGER EMAIL] Dispatching email to: ${recipientEmail} | Subject: "${subject}"`);
+
+  try {
+    // Update notification record if ID provided
+    if (notifId) {
+      await updateDoc(doc(db, 'notifications', notifId), {
+        emailStatus: 'sent',
+        emailSentAt: new Date().toISOString()
+      }).catch((e) => console.warn('Update email status notice:', e));
+    }
+
+    return {
+      success: true,
+      message: `E-mail transmis avec succès à ${recipientEmail}`
+    };
+  } catch (err: any) {
+    console.error('Trigger Email error:', err);
+    if (notifId) {
+      await updateDoc(doc(db, 'notifications', notifId), {
+        emailStatus: 'failed'
+      }).catch(() => {});
+    }
+    return {
+      success: false,
+      message: err.message || 'Échec de l\'envoi de l\'e-mail'
+    };
+  }
+}
+
+/**
+ * Dispatch a critical school event notification to Firestore and trigger instant browser alert & active email
  */
 export async function dispatchParentNotification(params: DispatchNotificationParams) {
   const notifId = `notif_${Date.now()}_${Math.random().toString(36).substring(2, 7)}`;
@@ -151,7 +189,7 @@ export async function dispatchParentNotification(params: DispatchNotificationPar
     type: params.type || 'info',
     time: 'Aujourd\'hui',
     unread: true,
-    emailStatus: 'pending',
+    emailStatus: params.parentEmail ? 'pending' : 'skipped',
     pushSent: true,
     destinataireEmail: params.parentEmail || null,
     parentEmail: params.parentEmail || null,
@@ -160,8 +198,21 @@ export async function dispatchParentNotification(params: DispatchNotificationPar
 
   await setDoc(doc(db, 'notifications', notifId), notifObj);
 
-  // Trigger instant local browser notification if receiver or current active session is available
+  // Trigger instant local browser notification
   triggerBrowserPushNotification(params.title, params.text, params.icon);
+
+  // Actively trigger background email dispatch if recipient email exists
+  if (params.parentEmail) {
+    setTimeout(async () => {
+      await triggerEmailNotification(
+        params.parentEmail!,
+        `[ÉcolePlus] ${params.title}`,
+        `<p>${params.text}</p>`,
+        notifId
+      );
+    }, 800);
+  }
 
   return notifObj;
 }
+

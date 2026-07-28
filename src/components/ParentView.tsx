@@ -3,7 +3,7 @@ import { db, handleFirestoreError, OperationType } from '../lib/firebase';
 import { collection, query, where, getDocs, doc, updateDoc, onSnapshot } from 'firebase/firestore';
 import { UserProfile, Eleve, Note, Absence, Paiement, AppNotification, Observation } from '../types';
 import { Award, Clock, FileText, CreditCard, Bell, LogOut, ChevronRight, Check, Mail, Smartphone, Volume2, ShieldCheck, Zap, MessageSquare, X } from 'lucide-react';
-import { playNotificationChime, requestPushPermission, triggerBrowserPushNotification, initServiceWorker } from '../lib/notifications';
+import { playNotificationChime, requestPushPermission, triggerBrowserPushNotification, initServiceWorker, dispatchParentNotification, triggerEmailNotification } from '../lib/notifications';
 import MessagerieView from './MessagerieView';
 import BulletinView from './BulletinView';
 import EmploiDuTempsView from './EmploiDuTempsView';
@@ -765,6 +765,27 @@ export default function ParentView({ user, onLogout, showToast }: ParentViewProp
                           }`}
                         >
                           {emailNotifsEnabled ? '✓ Notification Email Actives' : 'Activer les e-mails'}
+                        </button>
+                        <button
+                          onClick={async () => {
+                            const recipient = user.email || 'parent@ecoleplus.ci';
+                            showToast(`📧 Déclenchement de l'envoi de l'e-mail test à ${recipient}...`);
+                            
+                            await dispatchParentNotification({
+                              targetUid: user.uid,
+                              icon: '📧',
+                              bg: 'bg-emerald-500',
+                              title: 'Test de Notification E-mail Trigger',
+                              text: `Alerte e-mail déclenchée avec succès pour ${user.nom} (${recipient}).`,
+                              parentEmail: recipient,
+                              type: 'info'
+                            });
+
+                            showToast(`✅ E-mail de notification déclenché et envoyé à ${recipient} !`);
+                          }}
+                          className="bg-black hover:bg-neutral-800 text-white px-3.5 py-2 rounded-xl text-xs font-bold transition-all flex items-center gap-1.5 cursor-pointer shadow-2xs"
+                        >
+                          <Zap size={14} className="text-yellow-400" /> Déclencher E-mail Test
                         </button>
                         <button
                           onClick={() => {

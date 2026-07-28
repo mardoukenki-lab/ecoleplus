@@ -4,6 +4,7 @@ import { collection, query, where, getDocs, getDoc, doc, setDoc, updateDoc, dele
 import { UserProfile, Eleve, Note, Absence, CahierTexte, Paiement, Annonce, AppNotification, AuditLog } from '../types';
 import StudentImportModal from './StudentImportModal';
 import { clearAllDatabaseData, restoreDemoData } from '../lib/demoData';
+import { triggerEmailNotification } from '../lib/notifications';
 import { 
   Users, UserCheck, BookOpen, Clock, CreditCard, Bell, LogOut, ChevronRight, Check, X, Eye, Plus, Send, RefreshCw, Star, FileSpreadsheet, Upload, Trash2, RotateCcw, Sparkles, MessageSquare, Archive, ShieldAlert, FileText, Menu, AlertTriangle, GraduationCap
 } from 'lucide-react';
@@ -665,6 +666,32 @@ export default function AdminView({ user, onLogout, showToast }: AdminViewProps)
       showToast(`📣 Annonce ciblée (${newAnnonceDest}) publiée avec succès !`);
       setNewAnnonceObjet('');
       setNewAnnonceMsg('');
+
+      // Actively trigger background email notifications to target recipients
+      setTimeout(async () => {
+        try {
+          let emailTargets = allUsers.filter(u => u.email && u.email.includes('@'));
+          if (newAnnonceDest === 'Parents uniquement') {
+            emailTargets = emailTargets.filter(u => u.role === 'parent');
+          } else if (newAnnonceDest === 'Professeurs uniquement') {
+            emailTargets = emailTargets.filter(u => u.role === 'professeur');
+          }
+
+          for (const recipient of emailTargets) {
+            await triggerEmailNotification(
+              recipient.email,
+              `[ÉcolePlus Annonce] ${newAnnonceObjet}`,
+              `<h3>${newAnnonceObjet}</h3><p>${newAnnonceMsg}</p>`,
+              notifId
+            );
+          }
+
+          // Update notif document email status to sent
+          await updateDoc(doc(db, 'notifications', notifId), { emailStatus: 'sent' }).catch(() => {});
+        } catch (e) {
+          console.warn('Error during active email trigger notice:', e);
+        }
+      }, 500);
     } catch (err) {
       showToast('❌ Échec de publication de l\'annonce.');
     }

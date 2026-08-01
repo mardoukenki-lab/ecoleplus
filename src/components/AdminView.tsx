@@ -5,7 +5,8 @@ import { UserProfile, Eleve, Note, Absence, CahierTexte, Paiement, Annonce, AppN
 import StudentImportModal from './StudentImportModal';
 import StudentMonthlyStatsView from './StudentMonthlyStatsView';
 import { clearAllDatabaseData, restoreDemoData } from '../lib/demoData';
-import { triggerEmailNotification } from '../lib/notifications';
+import { triggerEmailNotification, dispatchParentNotification } from '../lib/notifications';
+import { computeFinancialSummary, getTranchesForPaiement, getStudentTuitionStatus } from '../lib/tuitionUtils';
 import { 
   Users, UserCheck, BookOpen, Clock, CreditCard, Bell, LogOut, ChevronRight, Check, X, Eye, Plus, Send, RefreshCw, Star, FileSpreadsheet, Upload, Trash2, RotateCcw, Sparkles, MessageSquare, Archive, ShieldAlert, FileText, Menu, AlertTriangle, GraduationCap
 } from 'lucide-react';
@@ -84,6 +85,11 @@ export default function AdminView({ user, onLogout, showToast }: AdminViewProps)
   const [payMontant, setPayMontant] = useState('25000');
   const [payMode, setPayMode] = useState('Wave');
   const [payRecuNo, setPayRecuNo] = useState(`REC-${new Date().getFullYear()}-${Math.floor(100 + Math.random() * 900)}`);
+
+  // Financial Dashboard Filters & Detail Modal State
+  const [paymentFilter, setPaymentFilter] = useState<'all' | 'retard' | 'ajour' | 'encours'>('all');
+  const [selectedPaymentForDetail, setSelectedPaymentForDetail] = useState<Paiement | null>(null);
+  const [isSendingBulkReminders, setIsSendingBulkReminders] = useState(false);
 
   // New Prof Form
   const [newProfNom, setNewProfNom] = useState('');
@@ -417,6 +423,47 @@ export default function AdminView({ user, onLogout, showToast }: AdminViewProps)
     } catch (err) {
       console.error(err);
       showToast('❌ Échec de l\'enregistrement du paiement.');
+    }
+  };
+
+  const handleSendBulkPaymentReminders = async () => {
+    setIsSendingBulkReminders(true);
+    let notifiedCount = 0;
+
+    try {
+      for (const p of payments) {
+        const { isOverdue, nextDue, isFullyPaid } = getStudentTuitionStatus(p);
+        if (isOverdue || (!isFullyPaid && p.solde > 0)) {
+          const student = students.find(s => s.id === p.eleveId);
+          const targetParentUid = student?.parentUid || 'target_parent';
+
+          let parentEmail = null;
+          if (student?.parentUid) {
+            const pUser = parentUsers.find(u => u.uid === student.parentUid);
+            if (pUser) parentEmail = pUser.email;
+          }
+
+          const trancheLabel = nextDue ? `${nextDue.nom} (${nextDue.montant.toLocaleString('fr-FR')} FCFA, Échéance : ${nextDue.echeanceLabel || nextDue.echeance})` : `Solde de ${p.solde.toLocaleString('fr-FR')} FCFA`;
+
+          await dispatchParentNotification({
+            targetUid: targetParentUid,
+            icon: '💳',
+            bg: 'bg-amber-100 text-amber-900',
+            title: `⚠️ Rappel d'Échéance Scolarité : ${p.eleveNom}`,
+            text: `Rappel de versement pour ${p.eleveNom} (${p.classe}) : ${trancheLabel}. Vous pouvez régler directement par Mobile Money (Wave, Orange, MTN) depuis votre espace Parent.`,
+            parentEmail,
+            type: 'paiement'
+          });
+          notifiedCount++;
+        }
+      }
+
+      showToast(`🔔 Rappels d'échéances envoyés avec succès à ${notifiedCount} parent(s) !`);
+    } catch (err) {
+      console.error(err);
+      showToast('❌ Erreur lors de l\'envoi des relances.');
+    } finally {
+      setIsSendingBulkReminders(false);
     }
   };
 
@@ -1972,50 +2019,245 @@ export default function AdminView({ user, onLogout, showToast }: AdminViewProps)
             />
           )}
 
-          {activeTab === 'paiements' && (
-            <div className="space-y-6">
-              <div className="flex justify-between items-center mb-4">
-                <p className="text-sm text-[#9e9e9e] font-medium">Rapprochement financier des frais de scolarité.</p>
-                <button
-                  onClick={() => {
-                    if (students.length > 0 && !payEleveId) setPayEleveId(students[0].id);
-                    setIsPaiementModalOpen(true);
-                  }}
-                  className="bg-[#1a1a1a] hover:bg-black text-white font-bold py-2.5 px-4 rounded-xl text-xs flex items-center gap-1.5 shadow-sm cursor-pointer uppercase tracking-widest transition-all"
-                >
-                  <Plus size={16} /> Enregistrer un versement
-                </button>
-              </div>
-              <div className="bg-white rounded-[24px] border border-[#e0e0e0] shadow-sm overflow-hidden">
-                <table className="w-full text-left border-collapse">
-                  <thead>
-                    <tr className="border-b border-[#e0e0e0] text-[10px] font-bold uppercase tracking-widest text-[#9e9e9e] bg-[#f5f5f5]/30">
-                      <th className="py-3 px-5">Élève</th>
-                      <th className="py-3 px-5">Classe</th>
-                      <th className="py-3 px-5">Scolarité totale</th>
-                      <th className="py-3 px-5">Scolarité payée</th>
-                      <th className="py-3 px-5">Solde restant</th>
-                      <th className="py-3 px-5">Échéance</th>
-                    </tr>
-                  </thead>
-                  <tbody className="divide-y divide-[#e0e0e0]/60 text-xs">
-                    {payments.map(p => (
-                      <tr key={p.id} className="hover:bg-[#f5f5f5]/20">
-                        <td className="py-3.5 px-5 font-bold text-[#1a1a1a]">{p.eleveNom}</td>
-                        <td className="py-3.5 px-5 text-[#1a1a1a] font-semibold">{p.classe}</td>
-                        <td className="py-3.5 px-5 text-[#9e9e9e] font-medium">{p.total.toLocaleString('fr-FR')} F</td>
-                        <td className="py-3.5 px-5 font-bold text-[#1a1a1a]">{p.paye.toLocaleString('fr-FR')} F</td>
-                        <td className={`py-3.5 px-5 font-bold ${p.solde > 0 ? 'text-amber-700' : 'text-[#9e9e9e]'}`}>
-                          {p.solde.toLocaleString('fr-FR')} F
-                        </td>
-                        <td className="py-3.5 px-5 text-[#9e9e9e] font-semibold">{p.echeance}</td>
+          {activeTab === 'paiements' && (() => {
+            const summary = computeFinancialSummary(payments);
+
+            const filteredPayments = payments.filter(p => {
+              const { isOverdue, isFullyPaid } = getStudentTuitionStatus(p);
+              if (paymentFilter === 'retard') return isOverdue;
+              if (paymentFilter === 'ajour') return isFullyPaid || p.solde <= 0;
+              if (paymentFilter === 'encours') return !isFullyPaid && !isOverdue;
+              return true;
+            });
+
+            return (
+              <div className="space-y-6">
+                {/* Real-time Summary Cards */}
+                <div className="grid grid-cols-1 md:grid-cols-4 gap-5">
+                  <div className="bg-white p-5 rounded-[22px] border border-[#e0e0e0] shadow-sm space-y-2">
+                    <div className="flex justify-between items-center text-[#9e9e9e] text-xs font-bold uppercase tracking-widest">
+                      <span>Total Attendu</span>
+                      <CreditCard size={18} className="text-gray-400" />
+                    </div>
+                    <div className="text-xl font-extrabold text-[#1a1a1a]">
+                      {summary.totalAttendu.toLocaleString('fr-FR')} FCFA
+                    </div>
+                    <p className="text-[10px] text-gray-500 font-medium">Budget annuel total fixé</p>
+                  </div>
+
+                  <div className="bg-white p-5 rounded-[22px] border border-emerald-200 bg-emerald-50/20 shadow-sm space-y-2">
+                    <div className="flex justify-between items-center text-emerald-800 text-xs font-bold uppercase tracking-widest">
+                      <span>Déjà Encaissé</span>
+                      <Check size={18} className="text-emerald-600" />
+                    </div>
+                    <div className="text-xl font-extrabold text-emerald-700">
+                      {summary.totalEncaisse.toLocaleString('fr-FR')} FCFA
+                    </div>
+                    <p className="text-[10px] text-emerald-800 font-bold">
+                      Taux de recouvrement : {summary.tauxRecouvrement}%
+                    </p>
+                  </div>
+
+                  <div className="bg-white p-5 rounded-[22px] border border-amber-200 bg-amber-50/20 shadow-sm space-y-2">
+                    <div className="flex justify-between items-center text-amber-900 text-xs font-bold uppercase tracking-widest">
+                      <span>Reste à Encaisser</span>
+                      <Clock size={18} className="text-amber-600" />
+                    </div>
+                    <div className="text-xl font-extrabold text-amber-800">
+                      {summary.totalRestant.toLocaleString('fr-FR')} FCFA
+                    </div>
+                    <p className="text-[10px] text-amber-900 font-medium">Solde global impayé</p>
+                  </div>
+
+                  <div className="bg-white p-5 rounded-[22px] border border-red-200 bg-red-50/20 shadow-sm space-y-2">
+                    <div className="flex justify-between items-center text-red-800 text-xs font-bold uppercase tracking-widest">
+                      <span>Retards de Paiement</span>
+                      <AlertTriangle size={18} className="text-red-600" />
+                    </div>
+                    <div className="text-xl font-extrabold text-red-700">
+                      {summary.elevesEnRetardCount} élève(s)
+                    </div>
+                    <p className="text-[10px] text-red-800 font-bold">
+                      {summary.montantEnRetard.toLocaleString('fr-FR')} FCFA en retard
+                    </p>
+                  </div>
+                </div>
+
+                {/* Filter and Action Header */}
+                <div className="bg-white p-4 rounded-[22px] border border-[#e0e0e0] shadow-sm flex flex-wrap justify-between items-center gap-4">
+                  {/* Filters */}
+                  <div className="flex items-center gap-2 overflow-x-auto">
+                    <span className="text-xs font-bold text-[#9e9e9e] uppercase tracking-wider mr-2">Filtres :</span>
+                    <button
+                      onClick={() => setPaymentFilter('all')}
+                      className={`px-3 py-1.5 rounded-xl text-xs font-bold transition-all cursor-pointer ${
+                        paymentFilter === 'all'
+                          ? 'bg-[#1a1a1a] text-white shadow-xs'
+                          : 'bg-[#f5f5f5] text-[#9e9e9e] hover:text-[#1a1a1a]'
+                      }`}
+                    >
+                      Tous ({payments.length})
+                    </button>
+                    <button
+                      onClick={() => setPaymentFilter('retard')}
+                      className={`px-3 py-1.5 rounded-xl text-xs font-bold transition-all cursor-pointer flex items-center gap-1.5 ${
+                        paymentFilter === 'retard'
+                          ? 'bg-red-600 text-white shadow-xs'
+                          : 'bg-red-50 text-red-700 hover:bg-red-100'
+                      }`}
+                    >
+                      🚨 En retard ({summary.elevesEnRetardCount})
+                    </button>
+                    <button
+                      onClick={() => setPaymentFilter('encours')}
+                      className={`px-3 py-1.5 rounded-xl text-xs font-bold transition-all cursor-pointer ${
+                        paymentFilter === 'encours'
+                          ? 'bg-amber-600 text-white shadow-xs'
+                          : 'bg-amber-50 text-amber-800 hover:bg-amber-100'
+                      }`}
+                    >
+                      ⏱ En cours ({summary.elevesEnCoursCount})
+                    </button>
+                    <button
+                      onClick={() => setPaymentFilter('ajour')}
+                      className={`px-3 py-1.5 rounded-xl text-xs font-bold transition-all cursor-pointer ${
+                        paymentFilter === 'ajour'
+                          ? 'bg-emerald-600 text-white shadow-xs'
+                          : 'bg-emerald-50 text-emerald-800 hover:bg-emerald-100'
+                      }`}
+                    >
+                      ✓ À jour / Soldé ({summary.elevesAJourCount})
+                    </button>
+                  </div>
+
+                  {/* Actions */}
+                  <div className="flex items-center gap-3">
+                    <button
+                      onClick={handleSendBulkPaymentReminders}
+                      disabled={isSendingBulkReminders}
+                      className="bg-amber-600 hover:bg-amber-700 text-white font-bold py-2.5 px-4 rounded-xl text-xs flex items-center gap-2 shadow-sm cursor-pointer transition-all disabled:opacity-50"
+                    >
+                      <Bell size={15} />
+                      {isSendingBulkReminders ? 'Envoi...' : 'Relancer les retards'}
+                    </button>
+
+                    <button
+                      onClick={() => {
+                        if (students.length > 0 && !payEleveId) setPayEleveId(students[0].id);
+                        setIsPaiementModalOpen(true);
+                      }}
+                      className="bg-[#1a1a1a] hover:bg-black text-white font-bold py-2.5 px-4 rounded-xl text-xs flex items-center gap-1.5 shadow-sm cursor-pointer uppercase tracking-widest transition-all"
+                    >
+                      <Plus size={16} /> Enregistrer un versement
+                    </button>
+                  </div>
+                </div>
+
+                {/* Real-time Financial Tracking Table */}
+                <div className="bg-white rounded-[24px] border border-[#e0e0e0] shadow-sm overflow-hidden">
+                  <table className="w-full text-left border-collapse">
+                    <thead>
+                      <tr className="border-b border-[#e0e0e0] text-[10px] font-bold uppercase tracking-widest text-[#9e9e9e] bg-[#f5f5f5]/30">
+                        <th className="py-3 px-5">Élève & Classe</th>
+                        <th className="py-3 px-5">Scolarité totale</th>
+                        <th className="py-3 px-5">Encaissé</th>
+                        <th className="py-3 px-5">Solde Restant</th>
+                        <th className="py-3 px-5">État Tranches</th>
+                        <th className="py-3 px-5">Prochaine Échéance</th>
+                        <th className="py-3 px-5 text-right">Actions</th>
                       </tr>
-                    ))}
-                  </tbody>
-                </table>
+                    </thead>
+                    <tbody className="divide-y divide-[#e0e0e0]/60 text-xs">
+                      {filteredPayments.map(p => {
+                        const tranches = getTranchesForPaiement(p);
+                        const { isOverdue, nextDue, isFullyPaid } = getStudentTuitionStatus(p);
+
+                        return (
+                          <tr key={p.id} className="hover:bg-[#f5f5f5]/20">
+                            <td className="py-3.5 px-5">
+                              <div className="font-extrabold text-[#1a1a1a]">{p.eleveNom}</div>
+                              <div className="text-[10px] font-semibold text-[#9e9e9e]">{p.classe}</div>
+                            </td>
+                            <td className="py-3.5 px-5 text-[#9e9e9e] font-semibold">
+                              {p.total.toLocaleString('fr-FR')} F
+                            </td>
+                            <td className="py-3.5 px-5 font-bold text-emerald-700">
+                              {p.paye.toLocaleString('fr-FR')} F
+                            </td>
+                            <td className={`py-3.5 px-5 font-extrabold ${p.solde > 0 ? 'text-amber-800' : 'text-gray-400'}`}>
+                              {p.solde.toLocaleString('fr-FR')} F
+                            </td>
+                            <td className="py-3.5 px-5">
+                              <div className="flex items-center gap-1.5">
+                                {tranches.map((t, idx) => (
+                                  <span
+                                    key={t.id || idx}
+                                    title={`${t.nom} (${t.montant.toLocaleString('fr-FR')} FCFA) : ${
+                                      t.statut === 'paye' ? 'Réglé' : t.statut === 'en_retard' ? 'En Retard !' : 'En attente'
+                                    }`}
+                                    className={`px-2 py-0.5 rounded-md text-[10px] font-bold ${
+                                      t.statut === 'paye'
+                                        ? 'bg-emerald-100 text-emerald-800'
+                                        : t.statut === 'en_retard'
+                                        ? 'bg-red-100 text-red-800 animate-pulse'
+                                        : 'bg-amber-100 text-amber-900'
+                                    }`}
+                                  >
+                                    T{idx + 1}: {t.statut === 'paye' ? '✓' : t.statut === 'en_retard' ? '🚨' : '⏱'}
+                                  </span>
+                                ))}
+                              </div>
+                            </td>
+                            <td className="py-3.5 px-5">
+                              {isFullyPaid ? (
+                                <span className="text-emerald-700 font-bold text-[11px]">✓ Scolarité Soldée</span>
+                              ) : isOverdue ? (
+                                <span className="text-red-700 font-bold text-[11px] flex items-center gap-1">
+                                  🚨 Retard : {nextDue?.nom || p.echeance}
+                                </span>
+                              ) : (
+                                <span className="text-amber-800 font-semibold text-[11px]">
+                                  ⏱ {nextDue?.nom || p.echeance}
+                                </span>
+                              )}
+                            </td>
+                            <td className="py-3.5 px-5 text-right">
+                              <div className="flex items-center justify-end gap-2">
+                                <button
+                                  onClick={() => setSelectedPaymentForDetail(p)}
+                                  className="p-1.5 rounded-lg border border-[#e0e0e0] hover:bg-gray-100 text-[#1a1a1a] transition-all cursor-pointer"
+                                  title="Consulter les tranches et l'historique"
+                                >
+                                  <Eye size={15} />
+                                </button>
+                                <button
+                                  onClick={() => {
+                                    setPayEleveId(p.eleveId);
+                                    setIsPaiementModalOpen(true);
+                                  }}
+                                  className="px-2.5 py-1.5 rounded-lg bg-[#1a1a1a] hover:bg-black text-white text-[11px] font-bold transition-all cursor-pointer flex items-center gap-1"
+                                >
+                                  <Plus size={13} /> Verser
+                                </button>
+                              </div>
+                            </td>
+                          </tr>
+                        );
+                      })}
+
+                      {filteredPayments.length === 0 && (
+                        <tr>
+                          <td colSpan={7} className="py-8 text-center text-[#9e9e9e]">
+                            Aucun enregistrement financier ne correspond à ce filtre.
+                          </td>
+                        </tr>
+                      )}
+                    </tbody>
+                  </table>
+                </div>
               </div>
-            </div>
-          )}
+            );
+          })()}
 
           {activeTab === 'annonces' && (
             <div className="grid grid-cols-3 gap-6">
@@ -3195,6 +3437,127 @@ export default function AdminView({ user, onLogout, showToast }: AdminViewProps)
                 className="text-xs font-bold text-gray-700 flex items-center gap-1 py-2"
               >
                 <LogOut size={14} /> Déconnexion
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* ADMIN TRANCHE & RECEIPT DETAILS MODAL */}
+      {selectedPaymentForDetail && (
+        <div className="fixed inset-0 bg-black/60 z-50 flex items-center justify-center p-4 backdrop-blur-xs animate-fade-in">
+          <div className="bg-white rounded-[32px] border border-[#e0e0e0] max-w-2xl w-full p-6 shadow-2xl space-y-6 max-h-[90vh] overflow-y-auto">
+            <div className="flex justify-between items-start border-b border-[#e0e0e0] pb-4">
+              <div>
+                <span className="text-[10px] font-bold text-[#9e9e9e] uppercase tracking-widest">Fiche Financière Détaillée</span>
+                <h3 className="font-extrabold text-lg text-[#1a1a1a]">
+                  {selectedPaymentForDetail.eleveNom} ({selectedPaymentForDetail.classe})
+                </h3>
+                <p className="text-xs text-gray-500">
+                  Scolarité totale : <strong className="text-[#1a1a1a]">{selectedPaymentForDetail.total.toLocaleString('fr-FR')} FCFA</strong> · 
+                  Encaissé : <strong className="text-emerald-700">{selectedPaymentForDetail.paye.toLocaleString('fr-FR')} FCFA</strong> · 
+                  Reste : <strong className="text-amber-800">{selectedPaymentForDetail.solde.toLocaleString('fr-FR')} FCFA</strong>
+                </p>
+              </div>
+              <button
+                onClick={() => setSelectedPaymentForDetail(null)}
+                className="p-2 rounded-full hover:bg-gray-100 text-gray-400 hover:text-gray-700 cursor-pointer"
+              >
+                <X size={20} />
+              </button>
+            </div>
+
+            {/* Tranches Breakdown */}
+            <div className="space-y-3">
+              <h4 className="font-bold text-xs uppercase tracking-wider text-[#9e9e9e]">Détail des 3 Tranches</h4>
+              <div className="space-y-2.5">
+                {getTranchesForPaiement(selectedPaymentForDetail).map((t, i) => (
+                  <div
+                    key={t.id || i}
+                    className={`p-4 rounded-2xl border flex flex-wrap items-center justify-between gap-3 ${
+                      t.statut === 'paye'
+                        ? 'bg-emerald-50/40 border-emerald-200'
+                        : t.statut === 'en_retard'
+                        ? 'bg-red-50/50 border-red-200'
+                        : 'bg-gray-50 border-gray-200'
+                    }`}
+                  >
+                    <div>
+                      <div className="flex items-center gap-2">
+                        <span className="font-bold text-xs text-[#1a1a1a]">{t.nom}</span>
+                        {t.statut === 'paye' && <span className="text-[10px] font-bold px-2 py-0.5 rounded-full bg-emerald-100 text-emerald-800">✓ Payé</span>}
+                        {t.statut === 'en_retard' && <span className="text-[10px] font-bold px-2 py-0.5 rounded-full bg-red-100 text-red-800">🚨 En Retard</span>}
+                        {t.statut === 'en_attente' && <span className="text-[10px] font-bold px-2 py-0.5 rounded-full bg-amber-100 text-amber-900">⏱ En Attente</span>}
+                      </div>
+                      <div className="text-[11px] text-gray-500 font-medium mt-0.5">
+                        Échéance fixée au : <strong>{t.echeanceLabel || t.echeance}</strong>
+                        {t.payeLe && <span> · Réglé le : {t.payeLe}</span>}
+                      </div>
+                    </div>
+
+                    <div className="text-right font-mono">
+                      <div className="font-extrabold text-xs text-[#1a1a1a]">
+                        {t.montant.toLocaleString('fr-FR')} FCFA
+                      </div>
+                      <div className="text-[10px] text-gray-500">
+                        {t.montantPaye >= t.montant ? '100% Réglé' : `Reçu : ${t.montantPaye.toLocaleString('fr-FR')} F`}
+                      </div>
+                    </div>
+                  </div>
+                ))}
+              </div>
+            </div>
+
+            {/* Receipt History */}
+            <div className="space-y-3">
+              <h4 className="font-bold text-xs uppercase tracking-wider text-[#9e9e9e]">Historique des Versements & Transactions</h4>
+              <div className="border border-[#e0e0e0] rounded-2xl overflow-hidden">
+                <table className="w-full text-left border-collapse text-xs">
+                  <thead>
+                    <tr className="border-b border-[#e0e0e0] text-[10px] font-bold uppercase tracking-widest text-[#9e9e9e] bg-[#f5f5f5]">
+                      <th className="py-2.5 px-4">Date</th>
+                      <th className="py-2.5 px-4">Montant</th>
+                      <th className="py-2.5 px-4">Mode / Opérateur</th>
+                      <th className="py-2.5 px-4">Référence / Reçu</th>
+                    </tr>
+                  </thead>
+                  <tbody className="divide-y divide-[#e0e0e0]/60">
+                    {selectedPaymentForDetail.historique?.map((h, idx) => (
+                      <tr key={idx} className="hover:bg-gray-50">
+                        <td className="py-2.5 px-4 text-[#9e9e9e]">{h.date}</td>
+                        <td className="py-2.5 px-4 font-extrabold text-emerald-700">{h.montant.toLocaleString('fr-FR')} FCFA</td>
+                        <td className="py-2.5 px-4 text-[#1a1a1a] font-semibold">{h.mode}</td>
+                        <td className="py-2.5 px-4 font-mono text-[11px] text-sky-800 font-bold">{h.recuNo || h.transactionRef || `REC-${idx + 1}`}</td>
+                      </tr>
+                    ))}
+                    {(!selectedPaymentForDetail.historique || selectedPaymentForDetail.historique.length === 0) && (
+                      <tr>
+                        <td colSpan={4} className="py-6 text-center text-gray-400">Aucun versement enregistré.</td>
+                      </tr>
+                    )}
+                  </tbody>
+                </table>
+              </div>
+            </div>
+
+            <div className="flex justify-between items-center border-t border-[#e0e0e0] pt-4">
+              <button
+                type="button"
+                onClick={() => {
+                  setPayEleveId(selectedPaymentForDetail.eleveId);
+                  setSelectedPaymentForDetail(null);
+                  setIsPaiementModalOpen(true);
+                }}
+                className="bg-[#1a1a1a] hover:bg-black text-white font-bold py-2.5 px-4 rounded-xl text-xs flex items-center gap-1.5 cursor-pointer"
+              >
+                <Plus size={15} /> Saisir un nouveau versement
+              </button>
+              <button
+                type="button"
+                onClick={() => setSelectedPaymentForDetail(null)}
+                className="px-5 py-2.5 border border-[#e0e0e0] rounded-xl text-xs font-bold text-[#1a1a1a] hover:bg-gray-100 cursor-pointer"
+              >
+                Fermer
               </button>
             </div>
           </div>

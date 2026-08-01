@@ -1,14 +1,16 @@
 import React, { useState, useEffect } from 'react';
 import { db, handleFirestoreError, OperationType } from '../lib/firebase';
 import { collection, query, where, getDocs, doc, updateDoc, onSnapshot } from 'firebase/firestore';
-import { UserProfile, Eleve, Note, Absence, Paiement, AppNotification, Observation } from '../types';
-import { Award, Clock, FileText, CreditCard, Bell, LogOut, ChevronRight, Check, Mail, Smartphone, Volume2, ShieldCheck, Zap, MessageSquare, X } from 'lucide-react';
+import { UserProfile, Eleve, Note, Absence, Paiement, AppNotification, Observation, Tranche } from '../types';
+import { Award, Clock, FileText, CreditCard, Bell, LogOut, ChevronRight, Check, Mail, Smartphone, Volume2, ShieldCheck, Zap, MessageSquare, X, AlertTriangle, ArrowRight } from 'lucide-react';
 import { playNotificationChime, requestPushPermission, triggerBrowserPushNotification, initServiceWorker, dispatchParentNotification, triggerEmailNotification } from '../lib/notifications';
 import MessagerieView from './MessagerieView';
 import BulletinView from './BulletinView';
 import EmploiDuTempsView from './EmploiDuTempsView';
 import StudentMonthlyStatsView from './StudentMonthlyStatsView';
 import { calculateStudentMonthlyStat, printIndividualMonthlyReport, getCurrentYearMonth } from '../lib/studentMonthlyStats';
+import { getTranchesForPaiement, getStudentTuitionStatus } from '../lib/tuitionUtils';
+import MobileMoneyPaymentModal from './MobileMoneyPaymentModal';
 
 interface ParentViewProps {
   user: UserProfile;
@@ -30,6 +32,10 @@ export default function ParentView({ user, onLogout, showToast }: ParentViewProp
   const [paiement, setPaiement] = useState<Paiement | null>(null);
   const [notifications, setNotifications] = useState<AppNotification[]>([]);
   const [observations, setObservations] = useState<Observation[]>([]);
+
+  // Mobile Money Payment Modal State
+  const [isMobileMoneyModalOpen, setIsMobileMoneyModalOpen] = useState(false);
+  const [selectedTrancheForPay, setSelectedTrancheForPay] = useState<Tranche | null>(null);
 
   // Mobile drawer state
   const [isMobilePlusMenuOpen, setIsMobilePlusMenuOpen] = useState(false);
@@ -719,54 +725,176 @@ export default function ParentView({ user, onLogout, showToast }: ParentViewProp
               )}
 
               {activeTab === 'paiements' && (
-                <div className="grid grid-cols-3 gap-6">
+                <div className="space-y-6">
                   {paiement ? (
                     <>
-                      <div className="bg-white rounded-[24px] border border-[#e0e0e0] p-6 space-y-4 shadow-sm h-fit">
-                        <h4 className="font-bold text-[10px] uppercase tracking-widest text-[#9e9e9e]">État financier</h4>
-                        <div className="text-xs text-[#9e9e9e] font-medium">Scolarité annuelle totale : <strong className="text-[#1a1a1a] font-semibold">{paiement.total.toLocaleString('fr-FR')} F</strong></div>
-                        <div className="flex justify-between items-center text-xs border-b border-[#e0e0e0]/60 pb-2">
-                          <span className="text-[#9e9e9e] font-semibold">Payé :</span>
-                          <span className="font-bold text-[#1a1a1a]">{paiement.paye.toLocaleString('fr-FR')} F</span>
+                      {/* Financial Status Header & Quick Mobile Money Action */}
+                      <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
+                        <div className="bg-white rounded-[24px] border border-[#e0e0e0] p-6 space-y-4 shadow-sm h-fit">
+                          <div className="flex justify-between items-center">
+                            <h4 className="font-bold text-[10px] uppercase tracking-widest text-[#9e9e9e]">Aperçu financier</h4>
+                            <span className="text-xs px-2.5 py-0.5 rounded-full font-bold bg-sky-100 text-sky-800">
+                              {paiement.solde <= 0 ? '✓ Soldé' : 'En cours'}
+                            </span>
+                          </div>
+
+                          <div className="text-xs text-[#9e9e9e] font-medium">Scolarité annuelle totale : <strong className="text-[#1a1a1a] font-semibold">{paiement.total.toLocaleString('fr-FR')} FCFA</strong></div>
+                          
+                          <div className="flex justify-between items-center text-xs border-b border-[#e0e0e0]/60 pb-2">
+                            <span className="text-[#9e9e9e] font-semibold">Payé :</span>
+                            <span className="font-bold text-emerald-600">{paiement.paye.toLocaleString('fr-FR')} FCFA</span>
+                          </div>
+
+                          <div className="flex justify-between items-center text-xs border-b border-[#e0e0e0]/60 pb-2">
+                            <span className="text-[#9e9e9e] font-semibold">Solde restant :</span>
+                            <span className={`font-extrabold ${paiement.solde > 0 ? 'text-amber-700' : 'text-gray-400'}`}>
+                              {paiement.solde.toLocaleString('fr-FR')} FCFA
+                            </span>
+                          </div>
+
+                          <div className="space-y-1">
+                            <div className="flex justify-between text-[10px] font-bold text-[#9e9e9e]">
+                              <span>Progression du règlement</span>
+                              <span>{Math.round((paiement.paye / (paiement.total || 1)) * 100)}%</span>
+                            </div>
+                            <div className="h-2.5 bg-[#f5f5f5] rounded-full overflow-hidden">
+                              <div 
+                                className="h-full bg-emerald-600 transition-all duration-500" 
+                                style={{ width: `${Math.min(100, (paiement.paye / (paiement.total || 1)) * 100)}%` }}
+                              ></div>
+                            </div>
+                          </div>
+
+                          {paiement.solde > 0 && (
+                            <button
+                              onClick={() => {
+                                setSelectedTrancheForPay(null);
+                                setIsMobileMoneyModalOpen(true);
+                              }}
+                              className="w-full mt-2 bg-emerald-600 hover:bg-emerald-700 text-white font-extrabold py-3 px-4 rounded-xl text-xs transition-all flex items-center justify-center gap-2 cursor-pointer shadow-sm"
+                            >
+                              <Smartphone size={16} /> Payer par Mobile Money (Wave, Orange, MTN)
+                            </button>
+                          )}
                         </div>
-                        <div className="flex justify-between items-center text-xs border-b border-[#e0e0e0]/60 pb-2">
-                          <span className="text-[#9e9e9e] font-semibold">Solde restant :</span>
-                          <span className="font-bold text-[#1a1a1a]">{paiement.solde.toLocaleString('fr-FR')} F</span>
-                        </div>
-                        <div className="h-2 bg-[#f5f5f5] rounded-full overflow-hidden">
-                          <div 
-                            className="h-full bg-[#1a1a1a]" 
-                            style={{ width: `${(paiement.paye / paiement.total) * 100}%` }}
-                          ></div>
-                        </div>
-                        <div className="bg-[#f5f5f5] border border-[#e0e0e0] p-3 rounded-xl text-[10px] text-[#1a1a1a] font-bold text-center tracking-tight">
-                          ⚠️ Prochaine échéance : {paiement.echeance}
+
+                        {/* Detailed Tranches Breakdown Card */}
+                        <div className="col-span-1 md:col-span-2 bg-white rounded-[24px] border border-[#e0e0e0] p-6 shadow-sm space-y-4">
+                          <div className="flex justify-between items-center border-b border-[#e0e0e0] pb-3">
+                            <div>
+                              <h3 className="font-bold text-sm text-[#1a1a1a]">Échéancier de Scolarité par Tranches</h3>
+                              <p className="text-[11px] text-[#9e9e9e]">Détail des échéances, dates limites et paiements mobile money.</p>
+                            </div>
+                            <span className="text-xs font-mono font-bold text-[#1a1a1a] bg-gray-100 px-3 py-1 rounded-lg">
+                              3 Tranches
+                            </span>
+                          </div>
+
+                          <div className="space-y-3">
+                            {getTranchesForPaiement(paiement).map((t, idx) => {
+                              const isUnpaid = t.statut !== 'paye';
+                              const isOverdue = t.statut === 'en_retard';
+
+                              return (
+                                <div
+                                  key={t.id || idx}
+                                  className={`p-4 rounded-2xl border transition-all ${
+                                    isOverdue
+                                      ? 'bg-red-50/50 border-red-200'
+                                      : t.statut === 'paye'
+                                      ? 'bg-emerald-50/30 border-emerald-200'
+                                      : 'bg-gray-50/70 border-gray-200'
+                                  }`}
+                                >
+                                  <div className="flex flex-wrap items-center justify-between gap-3">
+                                    <div className="space-y-1 min-w-[180px]">
+                                      <div className="flex items-center gap-2">
+                                        <span className="font-bold text-xs text-[#1a1a1a]">{t.nom}</span>
+                                        {t.statut === 'paye' && (
+                                          <span className="text-[10px] font-bold px-2 py-0.5 rounded-full bg-emerald-100 text-emerald-800 flex items-center gap-1">
+                                            ✓ Payé
+                                          </span>
+                                        )}
+                                        {isOverdue && (
+                                          <span className="text-[10px] font-bold px-2 py-0.5 rounded-full bg-red-100 text-red-800 flex items-center gap-1">
+                                            🚨 En retard
+                                          </span>
+                                        )}
+                                        {t.statut === 'en_attente' && (
+                                          <span className="text-[10px] font-bold px-2 py-0.5 rounded-full bg-amber-100 text-amber-900 flex items-center gap-1">
+                                            ⏱ En attente
+                                          </span>
+                                        )}
+                                      </div>
+                                      <div className="text-[11px] text-[#9e9e9e] font-medium flex items-center gap-3">
+                                        <span>Échéance : <strong>{t.echeanceLabel || t.echeance}</strong></span>
+                                        {t.payeLe && <span>· Réglé le : {t.payeLe}</span>}
+                                      </div>
+                                    </div>
+
+                                    <div className="flex items-center gap-4 ml-auto">
+                                      <div className="text-right">
+                                        <div className="text-xs font-extrabold text-[#1a1a1a]">
+                                          {t.montant.toLocaleString('fr-FR')} FCFA
+                                        </div>
+                                        <div className="text-[10px] font-semibold text-gray-500">
+                                          {t.montantPaye >= t.montant
+                                            ? 'Intégralement réglé'
+                                            : `Acompte : ${t.montantPaye.toLocaleString('fr-FR')} F (Reste: ${(t.montant - t.montantPaye).toLocaleString('fr-FR')} F)`}
+                                        </div>
+                                      </div>
+
+                                      {isUnpaid && (
+                                        <button
+                                          onClick={() => {
+                                            setSelectedTrancheForPay(t);
+                                            setIsMobileMoneyModalOpen(true);
+                                          }}
+                                          className="bg-emerald-600 hover:bg-emerald-700 text-white font-bold px-3 py-2 rounded-xl text-[11px] transition-all flex items-center gap-1.5 cursor-pointer shadow-xs whitespace-nowrap"
+                                        >
+                                          <Smartphone size={14} /> Payer
+                                        </button>
+                                      )}
+                                    </div>
+                                  </div>
+                                </div>
+                              );
+                            })}
+                          </div>
                         </div>
                       </div>
 
-                      <div className="col-span-2 bg-white rounded-[24px] border border-[#e0e0e0] shadow-sm overflow-hidden">
-                        <div className="px-5 py-4 border-b border-[#e0e0e0] font-bold text-[10px] text-[#9e9e9e] uppercase tracking-widest bg-[#f5f5f5]/30">
-                          Historique des reçus
+                      {/* Receipt History */}
+                      <div className="bg-white rounded-[24px] border border-[#e0e0e0] shadow-sm overflow-hidden">
+                        <div className="px-5 py-4 border-b border-[#e0e0e0] font-bold text-[10px] text-[#9e9e9e] uppercase tracking-widest bg-[#f5f5f5]/30 flex justify-between items-center">
+                          <span>Historique des reçus & transactions</span>
+                          <span className="text-[10px] text-[#1a1a1a] font-mono">{paiement.historique?.length || 0} versement(s)</span>
                         </div>
                         <table className="w-full text-left border-collapse">
                           <thead>
                             <tr className="border-b border-[#e0e0e0] text-[10px] font-bold uppercase tracking-widest text-[#9e9e9e]">
                               <th className="py-3 px-4">Date</th>
+                              <th className="py-3 px-4">Objet / Tranche</th>
                               <th className="py-3 px-4">Montant Versé</th>
-                              <th className="py-3 px-4">Mode de transaction</th>
+                              <th className="py-3 px-4">Mode / Opérateur</th>
+                              <th className="py-3 px-4">N° Reçu / Réf.</th>
                             </tr>
                           </thead>
                           <tbody className="divide-y divide-[#e0e0e0]/60 text-xs">
-                            {paiement.historique.map((h, i) => (
+                            {paiement.historique?.map((h, i) => (
                               <tr key={i} className="hover:bg-[#f5f5f5]/10">
-                                <td className="py-3 px-4 text-[#9e9e9e]">{h.date}</td>
-                                <td className="py-3 px-4 font-bold text-[#1a1a1a]">{h.montant.toLocaleString('fr-FR')} FCFA</td>
+                                <td className="py-3 px-4 text-[#9e9e9e] font-medium">{h.date}</td>
+                                <td className="py-3 px-4 text-[#1a1a1a] font-bold">{h.trancheNom || 'Scolarité'}</td>
+                                <td className="py-3 px-4 font-extrabold text-emerald-700">{h.montant.toLocaleString('fr-FR')} FCFA</td>
                                 <td className="py-3 px-4 text-[#9e9e9e] font-semibold">{h.mode}</td>
+                                <td className="py-3 px-4 font-mono text-[11px] text-sky-800 font-bold">
+                                  {h.recuNo || h.transactionRef || `REC-${i + 1}`}
+                                </td>
                               </tr>
                             ))}
-                            {paiement.historique.length === 0 && (
+                            {(!paiement.historique || paiement.historique.length === 0) && (
                               <tr>
-                                <td colSpan={3} className="py-8 text-center text-[#9e9e9e]">Aucun paiement effectué pour le moment</td>
+                                <td colSpan={5} className="py-8 text-center text-[#9e9e9e]">Aucun paiement effectué pour le moment</td>
                               </tr>
                             )}
                           </tbody>
@@ -774,7 +902,7 @@ export default function ParentView({ user, onLogout, showToast }: ParentViewProp
                       </div>
                     </>
                   ) : (
-                    <div className="col-span-3 bg-white p-8 rounded-[24px] text-center text-[#9e9e9e] border border-dashed border-[#e0e0e0]">
+                    <div className="bg-white p-8 rounded-[24px] text-center text-[#9e9e9e] border border-dashed border-[#e0e0e0]">
                       Aucune donnée financière disponible pour {selectedKid.nom}
                     </div>
                   )}
@@ -1201,6 +1329,22 @@ export default function ParentView({ user, onLogout, showToast }: ParentViewProp
             </div>
           </div>
         </div>
+      )}
+
+      {/* Mobile Money Payment Modal */}
+      {isMobileMoneyModalOpen && selectedKid && paiement && (
+        <MobileMoneyPaymentModal
+          paiement={paiement}
+          tranche={selectedTrancheForPay}
+          studentName={selectedKid.nom}
+          parentEmail={user.email}
+          userUid={user.uid}
+          onClose={() => {
+            setIsMobileMoneyModalOpen(false);
+            setSelectedTrancheForPay(null);
+          }}
+          showToast={showToast}
+        />
       )}
     </div>
   );

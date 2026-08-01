@@ -84,11 +84,26 @@ export interface CahierTexte {
   createdAt: string;
 }
 
+export interface Tranche {
+  id: string;
+  nom: string;
+  montant: number;
+  echeance: string; // ISO date string e.g. "2026-10-15"
+  echeanceLabel?: string;
+  statut: 'paye' | 'en_attente' | 'en_retard';
+  montantPaye: number;
+  payeLe?: string;
+  transactionRef?: string;
+  modePaiement?: string;
+}
+
 export interface PaiementHistorique {
   date: string;
   montant: number;
   mode: string;
   recuNo?: string;
+  trancheNom?: string;
+  transactionRef?: string;
 }
 
 export interface Paiement {
@@ -103,6 +118,7 @@ export interface Paiement {
   modePaiement?: string;
   recuNo?: string;
   historique: PaiementHistorique[];
+  tranches?: Tranche[];
 }
 
 export interface Annonce {

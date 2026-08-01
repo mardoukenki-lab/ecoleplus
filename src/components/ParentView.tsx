@@ -7,6 +7,8 @@ import { playNotificationChime, requestPushPermission, triggerBrowserPushNotific
 import MessagerieView from './MessagerieView';
 import BulletinView from './BulletinView';
 import EmploiDuTempsView from './EmploiDuTempsView';
+import StudentMonthlyStatsView from './StudentMonthlyStatsView';
+import { calculateStudentMonthlyStat, printIndividualMonthlyReport, getCurrentYearMonth } from '../lib/studentMonthlyStats';
 
 interface ParentViewProps {
   user: UserProfile;
@@ -234,6 +236,12 @@ export default function ParentView({ user, onLogout, showToast }: ParentViewProp
                 🎯 Notes & Résultats
               </button>
               <button
+                onClick={() => setActiveTab('statistiques')}
+                className={`w-full flex items-center gap-3 px-3 py-2.5 rounded-xl text-xs font-semibold tracking-tight transition-all cursor-pointer ${activeTab === 'statistiques' ? 'bg-[#1a1a1a] text-white' : 'text-[#9e9e9e] hover:bg-[#f5f5f5]/60 hover:text-[#1a1a1a]'}`}
+              >
+                📊 Stats mensuelles
+              </button>
+              <button
                 onClick={() => setActiveTab('presence')}
                 className={`w-full flex items-center gap-3 px-3 py-2.5 rounded-xl text-xs font-semibold tracking-tight transition-all cursor-pointer ${activeTab === 'presence' ? 'bg-[#1a1a1a] text-white' : 'text-[#9e9e9e] hover:bg-[#f5f5f5]/60 hover:text-[#1a1a1a]'}`}
               >
@@ -309,6 +317,7 @@ export default function ParentView({ user, onLogout, showToast }: ParentViewProp
               <h2 className="font-sans font-semibold text-[#1a1a1a] text-xs sm:text-base tracking-tight truncate">
                 {activeTab === 'dashboard' && 'Suivi de l\'élève'}
                 {activeTab === 'resultats' && 'Relevé de notes détaillé'}
+                {activeTab === 'statistiques' && 'Statistiques mensuelles de l\'élève'}
                 {activeTab === 'presence' && 'Registre de ponctualité'}
                 {activeTab === 'emploi' && 'Grille horaire hebdomadaire'}
                 {activeTab === 'observations' && 'Dossier & Observations'}
@@ -393,6 +402,33 @@ export default function ParentView({ user, onLogout, showToast }: ParentViewProp
 
               {activeTab === 'dashboard' && (
                 <div className="space-y-8">
+                  {/* Real-Time Absence Notification Banner */}
+                  {notifications.some(n => n.unread && (n.type === 'absence' || n.text.includes('absent') || n.text.includes('retard') || n.text.includes('absence') || n.icon === '📌' || n.icon === '⏱' || n.icon === '🚨')) && (
+                    <div className="bg-red-950 text-white p-4 rounded-[20px] shadow-sm border border-red-800 flex items-center justify-between gap-4">
+                      <div className="flex items-center gap-3 min-w-0">
+                        <span className="text-xl p-2 bg-red-500/20 text-red-400 rounded-xl flex-shrink-0">🚨</span>
+                        <div className="min-w-0">
+                          <div className="text-xs font-bold flex items-center gap-2 text-red-400">
+                            <span className="w-2 h-2 rounded-full bg-red-500 animate-ping inline-block"></span>
+                            Alerte Ponctualité / Absence Signalée
+                          </div>
+                          <p className="text-xs text-red-100 truncate mt-0.5">
+                            {notifications.find(n => n.unread && (n.type === 'absence' || n.text.includes('absent') || n.text.includes('retard') || n.text.includes('absence') || n.icon === '📌' || n.icon === '⏱' || n.icon === '🚨'))?.text}
+                          </p>
+                        </div>
+                      </div>
+                      <button
+                        onClick={() => {
+                          setActiveTab('presence');
+                          notifications.filter(n => n.unread && (n.type === 'absence' || n.text.includes('absent') || n.text.includes('retard') || n.text.includes('absence') || n.icon === '📌' || n.icon === '⏱' || n.icon === '🚨')).forEach(n => handleMarkAsRead(n.id));
+                        }}
+                        className="bg-red-600 hover:bg-red-700 text-white font-bold px-3.5 py-2 rounded-xl text-xs transition-all cursor-pointer flex-shrink-0 shadow-sm"
+                      >
+                        Voir le registre →
+                      </button>
+                    </div>
+                  )}
+
                   {/* Real-Time Grade Notification Banner */}
                   {notifications.some(n => n.unread && (n.icon === '📝' || n.text.includes('Nouvelle note'))) && (
                     <div className="bg-[#1a1a1a] text-white p-4 rounded-[20px] shadow-sm border border-[#333] flex items-center justify-between gap-4">
@@ -483,6 +519,64 @@ export default function ParentView({ user, onLogout, showToast }: ParentViewProp
                     </div>
                   </div>
 
+                  {/* Monthly Statistical Summary Widget for selected kid */}
+                  {selectedKid && (
+                    <div className="bg-gradient-to-br from-amber-500/10 via-white to-amber-500/5 rounded-[24px] border border-amber-200 p-5 shadow-2xs space-y-3">
+                      <div className="flex justify-between items-center">
+                        <div className="flex items-center gap-2">
+                          <span className="text-base">📊</span>
+                          <div>
+                            <h4 className="text-xs font-extrabold text-[#1a1a1a]">Résumé Statistique Mensuel</h4>
+                            <p className="text-[10px] text-[#9e9e9e] font-semibold">
+                              Bilan de {selectedKid.nom} — {new Date().toLocaleDateString('fr-FR', { month: 'long', year: 'numeric' })}
+                            </p>
+                          </div>
+                        </div>
+                        <div className="flex items-center gap-2">
+                          <button
+                            onClick={() => {
+                              const currMonth = getCurrentYearMonth();
+                              const stat = calculateStudentMonthlyStat(selectedKid, currMonth, notes, absences, paiement ? [paiement] : [], observations);
+                              printIndividualMonthlyReport(stat);
+                            }}
+                            className="bg-amber-600 hover:bg-amber-700 text-white px-3 py-1.5 rounded-xl text-[11px] font-bold cursor-pointer transition-all flex items-center gap-1 shadow-sm"
+                          >
+                            <FileText size={13} /> Exporter PDF
+                          </button>
+                          <button
+                            onClick={() => setActiveTab('statistiques')}
+                            className="bg-[#1a1a1a] hover:bg-black text-white px-3 py-1.5 rounded-xl text-[11px] font-bold cursor-pointer transition-all flex items-center gap-1"
+                          >
+                            Détails ➔
+                          </button>
+                        </div>
+                      </div>
+
+                      <div className="grid grid-cols-3 gap-3 pt-1">
+                        <div className="bg-white/80 p-3 rounded-xl border border-amber-200/60">
+                          <span className="text-[9px] font-bold uppercase tracking-widest text-[#9e9e9e]">Moyenne Mensuelle</span>
+                          <div className="text-base font-black text-[#1a1a1a] mt-0.5">
+                            {calculateGeneralAvg() !== 'N/A' ? `${calculateGeneralAvg()} / 20` : 'N/A'}
+                          </div>
+                        </div>
+
+                        <div className="bg-white/80 p-3 rounded-xl border border-amber-200/60">
+                          <span className="text-[9px] font-bold uppercase tracking-widest text-[#9e9e9e]">Taux Présence</span>
+                          <div className="text-base font-black text-emerald-700 mt-0.5">
+                            {Math.max(0, 100 - absences.filter(a => a.statut === 'absent').length * 5)}%
+                          </div>
+                        </div>
+
+                        <div className="bg-white/80 p-3 rounded-xl border border-amber-200/60">
+                          <span className="text-[9px] font-bold uppercase tracking-widest text-[#9e9e9e]">Frais Mensuels</span>
+                          <div className="text-base font-black text-amber-800 mt-0.5">
+                            {paiement && paiement.solde <= 0 ? 'À jour ✓' : `${paiement ? paiement.solde.toLocaleString('fr-FR') : 0} F`}
+                          </div>
+                        </div>
+                      </div>
+                    </div>
+                  )}
+
                   {/* Layout split */}
                   <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
                     {/* Latest Marks Widget */}
@@ -544,6 +638,19 @@ export default function ParentView({ user, onLogout, showToast }: ParentViewProp
 
               {activeTab === 'resultats' && (
                 <BulletinView currentUser={user} studentsList={kidsList} showToast={showToast} />
+              )}
+
+              {activeTab === 'statistiques' && (
+                <StudentMonthlyStatsView
+                  studentsList={kidsList}
+                  notesList={notes}
+                  absencesList={absences}
+                  paiementsList={paiement ? [paiement] : []}
+                  observationsList={observations}
+                  classesList={Array.from(new Set(kidsList.map(k => k.classe).filter(Boolean)))}
+                  userRole="parent"
+                  showToast={showToast}
+                />
               )}
 
               {activeTab === 'presence' && (

@@ -1,8 +1,9 @@
 import React, { useState, useEffect, useMemo } from 'react';
 import { db, handleFirestoreError, OperationType } from '../lib/firebase';
 import { collection, query, where, getDocs, getDoc, doc, setDoc, updateDoc, deleteDoc, onSnapshot, writeBatch } from 'firebase/firestore';
-import { UserProfile, Eleve, Note, Absence, CahierTexte, Paiement, Annonce, AppNotification, AuditLog } from '../types';
+import { UserProfile, Eleve, Note, Absence, CahierTexte, Paiement, Annonce, AppNotification, AuditLog, Observation } from '../types';
 import StudentImportModal from './StudentImportModal';
+import StudentMonthlyStatsView from './StudentMonthlyStatsView';
 import { clearAllDatabaseData, restoreDemoData } from '../lib/demoData';
 import { triggerEmailNotification } from '../lib/notifications';
 import { 
@@ -31,6 +32,9 @@ export default function AdminView({ user, onLogout, showToast }: AdminViewProps)
   const [payments, setPayments] = useState<Paiement[]>([]);
   const [announcements, setAnnouncements] = useState<Annonce[]>([]);
   const [recentAbsences, setRecentAbsences] = useState<Absence[]>([]);
+  const [allAbsencesFull, setAllAbsencesFull] = useState<Absence[]>([]);
+  const [allNotes, setAllNotes] = useState<Note[]>([]);
+  const [allObservations, setAllObservations] = useState<Observation[]>([]);
   const [firestoreClasses, setFirestoreClasses] = useState<string[]>([]);
   const [firestoreClassesDocs, setFirestoreClassesDocs] = useState<{ id: string; name: string; scolarite?: number }[]>([]);
 
@@ -199,8 +203,21 @@ export default function AdminView({ user, onLogout, showToast }: AdminViewProps)
     const unsubAbsences = onSnapshot(collection(db, 'absences'), (snap) => {
       const absList: Absence[] = [];
       snap.forEach(d => absList.push(d.data() as Absence));
+      setAllAbsencesFull(absList);
       setRecentAbsences(absList.slice(0, 10)); // Top 10
     }, (err) => console.warn('Absences listener notice:', err));
+
+    const unsubNotes = onSnapshot(collection(db, 'notes'), (snap) => {
+      const nList: Note[] = [];
+      snap.forEach(d => nList.push(d.data() as Note));
+      setAllNotes(nList);
+    }, (err) => console.warn('Notes listener notice:', err));
+
+    const unsubObservations = onSnapshot(collection(db, 'observations'), (snap) => {
+      const obsList: Observation[] = [];
+      snap.forEach(d => obsList.push(d.data() as Observation));
+      setAllObservations(obsList);
+    }, (err) => console.warn('Observations listener notice:', err));
 
     // Load admin notifications
     const qNotifs = query(collection(db, 'notifications'), where('userUid', 'in', ['all', user.uid]));
@@ -244,6 +261,8 @@ export default function AdminView({ user, onLogout, showToast }: AdminViewProps)
       unsubPayments();
       unsubAnnonces();
       unsubAbsences();
+      unsubNotes();
+      unsubObservations();
       unsubNotifs();
       unsubAllUsers();
       unsubClasses();
@@ -1114,6 +1133,12 @@ export default function AdminView({ user, onLogout, showToast }: AdminViewProps)
                 📋 Bulletins
               </button>
               <button
+                onClick={() => navigate(setActiveTab, 'statistiques')}
+                className={`w-full flex items-center gap-3 px-3 py-2.5 rounded-xl text-xs font-semibold tracking-tight transition-all cursor-pointer ${activeTab === 'statistiques' ? 'bg-[#1a1a1a] text-white' : 'text-[#9e9e9e] hover:bg-[#f5f5f5]/60 hover:text-[#1a1a1a]'}`}
+              >
+                📊 Stats mensuelles
+              </button>
+              <button
                 onClick={() => navigate(setActiveTab, 'paiements')}
                 className={`w-full flex items-center gap-3 px-3 py-2.5 rounded-xl text-xs font-semibold tracking-tight transition-all cursor-pointer ${activeTab === 'paiements' ? 'bg-[#1a1a1a] text-white' : 'text-[#9e9e9e] hover:bg-[#f5f5f5]/60 hover:text-[#1a1a1a]'}`}
               >
@@ -1169,6 +1194,7 @@ export default function AdminView({ user, onLogout, showToast }: AdminViewProps)
               {activeTab === 'classes' && 'Classes & Matières'}
               {activeTab === 'emploi' && 'Emploi du temps'}
               {activeTab === 'bulletins' && 'Bulletins scolaires'}
+              {activeTab === 'statistiques' && 'Statistiques mensuelles des élèves'}
               {activeTab === 'paiements' && 'Frais scolaires'}
               {activeTab === 'annonces' && 'Annonces générales'}
               {activeTab === 'messagerie' && 'Messagerie en direct'}
@@ -1931,6 +1957,19 @@ export default function AdminView({ user, onLogout, showToast }: AdminViewProps)
 
           {activeTab === 'bulletins' && (
             <BulletinView currentUser={user} studentsList={students} showToast={showToast} />
+          )}
+
+          {activeTab === 'statistiques' && (
+            <StudentMonthlyStatsView
+              studentsList={students}
+              notesList={allNotes}
+              absencesList={allAbsencesFull}
+              paiementsList={payments}
+              observationsList={allObservations}
+              classesList={firestoreClasses}
+              userRole="admin"
+              showToast={showToast}
+            />
           )}
 
           {activeTab === 'paiements' && (

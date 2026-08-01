@@ -2,11 +2,14 @@ import React, { useState, useEffect } from 'react';
 import { db, handleFirestoreError, OperationType } from '../lib/firebase';
 import { collection, query, where, getDocs, getDoc, doc, setDoc, updateDoc, onSnapshot, writeBatch } from 'firebase/firestore';
 import { UserProfile, Eleve, Note, Absence, CahierTexte, AppNotification, ScheduleSlot, Observation } from '../types';
-import { BookOpen, UserCheck, Clock, MessageSquare, Send, Check, X, LogOut, Bell, Save } from 'lucide-react';
+import { BookOpen, UserCheck, Clock, MessageSquare, Send, Check, X, LogOut, Bell, Save, AlertTriangle, Plus } from 'lucide-react';
 import MessagerieView from './MessagerieView';
 import EmploiDuTempsView from './EmploiDuTempsView';
 import BulletinView from './BulletinView';
 import ClassesView from './ClassesView';
+import StudentMonthlyStatsView from './StudentMonthlyStatsView';
+import { Paiement } from '../types';
+import { dispatchParentNotification } from '../lib/notifications';
 
 interface ProfViewProps {
   user: UserProfile;
@@ -46,6 +49,16 @@ export default function ProfView({ user, onLogout, showToast }: ProfViewProps) {
   const [notifications, setNotifications] = useState<AppNotification[]>([]);
   const [showNotifications, setShowNotifications] = useState(false);
 
+  // Absence Reporting Modal State
+  const [showAbsenceModal, setShowAbsenceModal] = useState(false);
+  const [absenceStudentId, setAbsenceStudentId] = useState('');
+  const [absenceDate, setAbsenceDate] = useState(new Date().toISOString().split('T')[0]);
+  const [absenceHeure, setAbsenceHeure] = useState(new Date().toLocaleTimeString('fr-FR', { hour: '2-digit', minute: '2-digit' }));
+  const [absenceStatut, setAbsenceStatut] = useState<'absent' | 'retard'>('absent');
+  const [absenceMatiere, setAbsenceMatiere] = useState('Mathématiques');
+  const [absenceMotif, setAbsenceMotif] = useState('');
+  const [isSubmittingAbsence, setIsSubmittingAbsence] = useState(false);
+
   // Observations state
   const [observationsList, setObservationsList] = useState<Observation[]>([]);
   const [obsStudentId, setObsStudentId] = useState('');
@@ -57,6 +70,11 @@ export default function ProfView({ user, onLogout, showToast }: ProfViewProps) {
   // Mobile navigation drawer
   const [isMobilePlusMenuOpen, setIsMobilePlusMenuOpen] = useState(false);
 
+  // Full datasets for monthly statistics calculation
+  const [allNotesList, setAllNotesList] = useState<Note[]>([]);
+  const [allAbsencesList, setAllAbsencesList] = useState<Absence[]>([]);
+  const [allPaiementsList, setAllPaiementsList] = useState<Paiement[]>([]);
+
   // Real-time listener for global system metrics (Students, Notes count, Today Absences, Schedules, Classes)
   useEffect(() => {
     const unsubAllEleves = onSnapshot(collection(db, 'eleves'), (snap) => {
@@ -67,7 +85,22 @@ export default function ProfView({ user, onLogout, showToast }: ProfViewProps) {
 
     const unsubAllNotes = onSnapshot(collection(db, 'notes'), (snap) => {
       setAllNotesCount(snap.size);
+      const nList: Note[] = [];
+      snap.forEach((d) => nList.push(d.data() as Note));
+      setAllNotesList(nList);
     }, (err) => console.warn('All notes notice:', err));
+
+    const unsubAllAbs = onSnapshot(collection(db, 'absences'), (snap) => {
+      const aList: Absence[] = [];
+      snap.forEach((d) => aList.push(d.data() as Absence));
+      setAllAbsencesList(aList);
+    }, (err) => console.warn('All absences notice:', err));
+
+    const unsubPaiements = onSnapshot(collection(db, 'paiements'), (snap) => {
+      const pList: Paiement[] = [];
+      snap.forEach((d) => pList.push(d.data() as Paiement));
+      setAllPaiementsList(pList);
+    }, (err) => console.warn('Paiements notice:', err));
 
     const todayStr = new Date().toISOString().split('T')[0];
     const qAbs = query(collection(db, 'absences'), where('date', '==', todayStr), where('statut', '==', 'absent'));
@@ -93,6 +126,8 @@ export default function ProfView({ user, onLogout, showToast }: ProfViewProps) {
     return () => {
       unsubAllEleves();
       unsubAllNotes();
+      unsubAllAbs();
+      unsubPaiements();
       unsubAbs();
       unsubSchedules();
       unsubClasses();
@@ -412,6 +447,98 @@ export default function ProfView({ user, onLogout, showToast }: ProfViewProps) {
     }
   };
 
+  const handleReportAbsenceWithNotification = async (e: React.FormEvent) => {
+    e.preventDefault();
+    const student = allStudents.find(s => s.id === absenceStudentId) || students.find(s => s.id === absenceStudentId);
+    if (!student) {
+      showToast('⚠️ Veuillez sélectionner un élève.');
+      return;
+    }
+
+    setIsSubmittingAbsence(true);
+    const absId = `abs_${student.id}_${Date.now().toString(36)}`;
+    const mat = absenceMatiere || activeMatiere || 'Général';
+    const dt = absenceDate || new Date().toISOString().split('T')[0];
+    const hr = absenceHeure || new Date().toLocaleTimeString('fr-FR', { hour: '2-digit', minute: '2-digit' });
+
+    const newAbs: Absence = {
+      id: absId,
+      eleveId: student.id,
+      eleveNom: student.nom,
+      classe: student.classe || activeClasse,
+      matiere: mat,
+      profNom: user.nom,
+      date: dt,
+      heure: hr,
+      statut: absenceStatut,
+      createdAt: new Date().toISOString()
+    };
+
+    try {
+      await setDoc(doc(db, 'absences', absId), newAbs);
+
+      // Identify target parent users
+      const targetParents = new Map<string, string>();
+      if (student.parentUid) {
+        try {
+          const pDoc = await getDoc(doc(db, 'users', student.parentUid));
+          if (pDoc.exists()) {
+            targetParents.set(student.parentUid, pDoc.data().email || '');
+          }
+        } catch (err) {
+          console.warn('Parent lookup notice:', err);
+        }
+      }
+
+      try {
+        const pSnap = await getDocs(query(collection(db, 'users'), where('role', '==', 'parent')));
+        pSnap.forEach(d => {
+          const p = d.data() as UserProfile;
+          if (p.enfants && p.enfants.some(e => e.matricule === student.code || e.nom.toLowerCase() === student.nom.toLowerCase())) {
+            targetParents.set(p.uid, p.email || '');
+          }
+        });
+      } catch (err) {
+        console.warn('Parent query notice:', err);
+      }
+
+      const label = absenceStatut === 'absent' ? 'absent(e)' : 'en retard';
+      const notifMsg = `🚨 Alerte Ponctualité : Votre enfant ${student.nom} (${student.classe}) est signalé(e) ${label} le ${dt} à ${hr} (Matière: ${mat}).${absenceMotif ? ` Motif/Détail: ${absenceMotif}` : ''}`;
+
+      if (targetParents.size > 0) {
+        for (const [pUid, pEmail] of targetParents) {
+          await dispatchParentNotification({
+            targetUid: pUid,
+            icon: absenceStatut === 'absent' ? '🚨' : '⏱',
+            bg: absenceStatut === 'absent' ? 'bg-red-100 text-red-700' : 'bg-amber-100 text-amber-800',
+            title: `🚨 Signalement d'absence : ${student.nom}`,
+            text: notifMsg,
+            parentEmail: pEmail,
+            type: 'absence'
+          });
+        }
+      } else {
+        await dispatchParentNotification({
+          targetUid: 'target_parent',
+          icon: absenceStatut === 'absent' ? '🚨' : '⏱',
+          bg: absenceStatut === 'absent' ? 'bg-red-100 text-red-700' : 'bg-amber-100 text-amber-800',
+          title: `🚨 Signalement d'absence : ${student.nom}`,
+          text: notifMsg,
+          type: 'absence'
+        });
+      }
+
+      showToast(`🔔 Absence de ${student.nom} signalée ! Notification automatique transmise au parent.`);
+      setShowAbsenceModal(false);
+      setAbsenceMotif('');
+    } catch (err) {
+      console.error(err);
+      showToast('❌ Erreur lors du signalement de l\'absence.');
+    } finally {
+      setIsSubmittingAbsence(false);
+    }
+  };
+
   const handlePublishCahier = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!newCahierCours) {
@@ -525,6 +652,12 @@ export default function ProfView({ user, onLogout, showToast }: ProfViewProps) {
                 📑 Bulletins
               </button>
               <button
+                onClick={() => setActiveTab('statistiques')}
+                className={`w-full flex items-center gap-3 px-3 py-2.5 rounded-xl text-xs font-semibold tracking-tight transition-all cursor-pointer ${activeTab === 'statistiques' ? 'bg-[#1a1a1a] text-white' : 'text-[#9e9e9e] hover:bg-[#f5f5f5]/60 hover:text-[#1a1a1a]'}`}
+              >
+                📊 Stats mensuelles
+              </button>
+              <button
                 onClick={() => setActiveTab('observations')}
                 className={`w-full flex items-center gap-3 px-3 py-2.5 rounded-xl text-xs font-semibold tracking-tight transition-all cursor-pointer ${activeTab === 'observations' ? 'bg-[#1a1a1a] text-white' : 'text-[#9e9e9e] hover:bg-[#f5f5f5]/60 hover:text-[#1a1a1a]'}`}
               >
@@ -571,6 +704,8 @@ export default function ProfView({ user, onLogout, showToast }: ProfViewProps) {
               {activeTab === 'notes' && 'Saisie des notes'}
               {activeTab === 'absences' && 'Registre d\'Appel (Présences)'}
               {activeTab === 'cahier' && 'Cahier de texte numérique'}
+              {activeTab === 'bulletins' && 'Bulletins scolaires'}
+              {activeTab === 'statistiques' && 'Statistiques mensuelles des élèves'}
               {activeTab === 'messagerie' && 'Messagerie'}
             </h2>
           </div>
@@ -807,17 +942,30 @@ export default function ProfView({ user, onLogout, showToast }: ProfViewProps) {
 
           {activeTab === 'absences' && (
             <div className="space-y-6">
-              <div className="bg-white rounded-[24px] border border-[#e0e0e0] p-4 shadow-sm flex items-center gap-3">
-                <select 
-                  value={activeClasse}
-                  onChange={(e) => setActiveClasse(e.target.value)}
-                  className="px-3 py-2 border border-[#e0e0e0] rounded-xl text-xs bg-white focus:outline-none focus:border-[#1a1a1a] text-[#1a1a1a]"
+              <div className="bg-white rounded-[24px] border border-[#e0e0e0] p-4 shadow-sm flex flex-wrap items-center justify-between gap-3">
+                <div className="flex items-center gap-3">
+                  <select 
+                    value={activeClasse}
+                    onChange={(e) => setActiveClasse(e.target.value)}
+                    className="px-3 py-2 border border-[#e0e0e0] rounded-xl text-xs bg-white focus:outline-none focus:border-[#1a1a1a] text-[#1a1a1a]"
+                  >
+                    {classesList.map(c => (
+                      <option key={c} value={c}>{c}</option>
+                    ))}
+                  </select>
+                  <span className="text-[10px] font-bold text-[#9e9e9e] uppercase tracking-widest">Date d'appel : Aujourd'hui</span>
+                </div>
+
+                <button
+                  onClick={() => {
+                    setAbsenceStudentId(students[0]?.id || allStudents[0]?.id || '');
+                    setAbsenceMatiere(activeMatiere || 'Mathématiques');
+                    setShowAbsenceModal(true);
+                  }}
+                  className="bg-red-600 hover:bg-red-700 text-white px-4 py-2 rounded-xl text-xs font-bold transition-all flex items-center gap-2 cursor-pointer shadow-sm ml-auto"
                 >
-                  {classesList.map(c => (
-                    <option key={c} value={c}>{c}</option>
-                  ))}
-                </select>
-                <span className="text-[10px] font-bold text-[#9e9e9e] uppercase tracking-widest">Date d'appel : Aujourd'hui</span>
+                  <AlertTriangle size={14} /> Signaler une Absence & Notifier Parent
+                </button>
               </div>
 
               <div className="bg-white rounded-[24px] border border-[#e0e0e0] shadow-sm overflow-hidden">
@@ -863,6 +1011,17 @@ export default function ProfView({ user, onLogout, showToast }: ProfViewProps) {
                               }`}
                             >
                               ⏱ Retard
+                            </button>
+                            <button
+                              onClick={() => {
+                                setAbsenceStudentId(s.id);
+                                setAbsenceMatiere(activeMatiere || 'Mathématiques');
+                                setShowAbsenceModal(true);
+                              }}
+                              className="px-2.5 py-1.5 rounded-lg text-[11px] font-bold border border-red-200 text-red-600 hover:bg-red-50 transition-all cursor-pointer flex items-center gap-1"
+                              title="Signaler une absence spécifique avec motif au parent"
+                            >
+                              <AlertTriangle size={12} /> Motif & Notifier
                             </button>
                           </div>
                         </td>
@@ -958,6 +1117,19 @@ export default function ProfView({ user, onLogout, showToast }: ProfViewProps) {
 
           {activeTab === 'bulletins' && (
             <BulletinView currentUser={user} studentsList={allStudents} showToast={showToast} />
+          )}
+
+          {activeTab === 'statistiques' && (
+            <StudentMonthlyStatsView
+              studentsList={allStudents}
+              notesList={allNotesList}
+              absencesList={allAbsencesList}
+              paiementsList={allPaiementsList}
+              observationsList={observationsList}
+              classesList={classesList}
+              userRole="prof"
+              showToast={showToast}
+            />
           )}
 
           {activeTab === 'observations' && (
@@ -1186,6 +1358,127 @@ export default function ProfView({ user, onLogout, showToast }: ProfViewProps) {
                 <LogOut size={14} /> Déconnexion
               </button>
             </div>
+          </div>
+        </div>
+      )}
+
+      {/* Absence Signalement Modal */}
+      {showAbsenceModal && (
+        <div className="fixed inset-0 bg-black/60 backdrop-blur-xs flex items-center justify-center p-4 z-50 animate-fade-in">
+          <div className="bg-white rounded-[28px] max-w-lg w-full p-6 shadow-2xl border border-[#e0e0e0] space-y-5">
+            <div className="flex justify-between items-center border-b border-[#e0e0e0] pb-4">
+              <div className="flex items-center gap-3">
+                <div className="p-2 bg-red-100 text-red-600 rounded-xl">
+                  <AlertTriangle size={20} />
+                </div>
+                <div>
+                  <h3 className="font-extrabold text-[#1a1a1a] text-base">Signaler une Absence ou Retard</h3>
+                  <p className="text-[11px] text-[#9e9e9e]">Envoie une alerte automatique instantanée (Email & Push) au parent.</p>
+                </div>
+              </div>
+              <button
+                onClick={() => setShowAbsenceModal(false)}
+                className="p-1.5 text-gray-400 hover:text-gray-700 rounded-lg hover:bg-gray-100 transition-all cursor-pointer"
+              >
+                <X size={18} />
+              </button>
+            </div>
+
+            <form onSubmit={handleReportAbsenceWithNotification} className="space-y-4">
+              <div>
+                <label className="block text-[10px] font-bold text-[#9e9e9e] uppercase tracking-widest mb-1.5">Élève concerné</label>
+                <select
+                  required
+                  value={absenceStudentId}
+                  onChange={(e) => setAbsenceStudentId(e.target.value)}
+                  className="w-full px-3.5 py-2.5 border border-[#e0e0e0] rounded-xl text-xs bg-white text-[#1a1a1a] focus:outline-none focus:border-red-500 font-bold"
+                >
+                  <option value="">-- Sélectionner un élève --</option>
+                  {(students.length > 0 ? students : allStudents).map(s => (
+                    <option key={s.id} value={s.id}>
+                      {s.nom} ({s.classe}) {s.code ? `[${s.code}]` : ''}
+                    </option>
+                  ))}
+                </select>
+              </div>
+
+              <div className="grid grid-cols-2 gap-3">
+                <div>
+                  <label className="block text-[10px] font-bold text-[#9e9e9e] uppercase tracking-widest mb-1.5">Date d'absence</label>
+                  <input
+                    type="date"
+                    required
+                    value={absenceDate}
+                    onChange={(e) => setAbsenceDate(e.target.value)}
+                    className="w-full px-3 py-2 border border-[#e0e0e0] rounded-xl text-xs bg-white text-[#1a1a1a] focus:outline-none focus:border-red-500"
+                  />
+                </div>
+                <div>
+                  <label className="block text-[10px] font-bold text-[#9e9e9e] uppercase tracking-widest mb-1.5">Heure du cours</label>
+                  <input
+                    type="text"
+                    required
+                    placeholder="ex: 08:30"
+                    value={absenceHeure}
+                    onChange={(e) => setAbsenceHeure(e.target.value)}
+                    className="w-full px-3 py-2 border border-[#e0e0e0] rounded-xl text-xs bg-white text-[#1a1a1a] focus:outline-none focus:border-red-500"
+                  />
+                </div>
+              </div>
+
+              <div className="grid grid-cols-2 gap-3">
+                <div>
+                  <label className="block text-[10px] font-bold text-[#9e9e9e] uppercase tracking-widest mb-1.5">Matière</label>
+                  <input
+                    type="text"
+                    required
+                    placeholder="Matière"
+                    value={absenceMatiere}
+                    onChange={(e) => setAbsenceMatiere(e.target.value)}
+                    className="w-full px-3 py-2 border border-[#e0e0e0] rounded-xl text-xs bg-white text-[#1a1a1a] focus:outline-none focus:border-red-500"
+                  />
+                </div>
+                <div>
+                  <label className="block text-[10px] font-bold text-[#9e9e9e] uppercase tracking-widest mb-1.5">Nature de l'alerte</label>
+                  <select
+                    value={absenceStatut}
+                    onChange={(e) => setAbsenceStatut(e.target.value as 'absent' | 'retard')}
+                    className="w-full px-3 py-2 border border-[#e0e0e0] rounded-xl text-xs bg-white text-[#1a1a1a] focus:outline-none focus:border-red-500 font-bold"
+                  >
+                    <option value="absent">✗ Absence de cours</option>
+                    <option value="retard">⏱ Retard significatif</option>
+                  </select>
+                </div>
+              </div>
+
+              <div>
+                <label className="block text-[10px] font-bold text-[#9e9e9e] uppercase tracking-widest mb-1.5">Motif / Commentaire (optionnel)</label>
+                <textarea
+                  rows={2}
+                  placeholder="ex: Absence non justifiée au début de l'évaluation..."
+                  value={absenceMotif}
+                  onChange={(e) => setAbsenceMotif(e.target.value)}
+                  className="w-full px-3 py-2 border border-[#e0e0e0] rounded-xl text-xs bg-white text-[#1a1a1a] focus:outline-none focus:border-red-500"
+                />
+              </div>
+
+              <div className="pt-2 flex justify-end gap-3">
+                <button
+                  type="button"
+                  onClick={() => setShowAbsenceModal(false)}
+                  className="px-4 py-2 border border-gray-300 text-gray-700 text-xs font-bold rounded-xl hover:bg-gray-50 cursor-pointer"
+                >
+                  Annuler
+                </button>
+                <button
+                  type="submit"
+                  disabled={isSubmittingAbsence}
+                  className="px-5 py-2 bg-red-600 hover:bg-red-700 text-white text-xs font-bold rounded-xl transition-all flex items-center gap-2 cursor-pointer shadow-sm disabled:opacity-50"
+                >
+                  {isSubmittingAbsence ? 'Transmission...' : '🚨 Signaler & Notifier le Parent'}
+                </button>
+              </div>
+            </form>
           </div>
         </div>
       )}

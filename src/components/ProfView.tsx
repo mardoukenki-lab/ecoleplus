@@ -592,9 +592,9 @@ export default function ProfView({ user, onLogout, showToast }: ProfViewProps) {
       {/* SIDEBAR DESKTOP */}
       <aside className="hidden md:flex md:w-64 bg-white border-r border-[#e0e0e0] flex-col flex-shrink-0">
         <div className="p-6 border-b border-[#e0e0e0] flex items-center gap-3">
-          <div className="w-9 h-9 bg-[#1a1a1a] text-white rounded-xl flex items-center justify-center font-bold text-sm">EP</div>
+          <div className="w-9 h-9 bg-[#1a1a1a] text-white rounded-xl flex items-center justify-center font-bold text-sm tracking-tight">AS</div>
           <div>
-            <div className="font-sans font-semibold text-[#1a1a1a] text-sm tracking-tight leading-none">ÉcolePlus</div>
+            <div className="font-sans font-bold text-[#1a1a1a] text-sm tracking-tight leading-none">AKPANY SCHOOL</div>
             <div className="text-[10px] text-[#9e9e9e] font-semibold tracking-wide uppercase mt-1">Portail Enseignant</div>
           </div>
         </div>
@@ -698,16 +698,20 @@ export default function ProfView({ user, onLogout, showToast }: ProfViewProps) {
         {/* HEADER */}
         <header className="bg-white border-b border-[#e0e0e0] h-16 flex items-center px-4 md:px-8 justify-between flex-shrink-0">
           <div className="flex items-center gap-3 min-w-0">
-            <div className="md:hidden w-8 h-8 bg-[#1a1a1a] text-white rounded-lg flex items-center justify-center font-bold text-xs flex-shrink-0">EP</div>
-            <h2 className="font-sans font-semibold text-[#1a1a1a] text-sm md:text-base tracking-tight truncate">
-              {activeTab === 'dashboard' && 'Tableau de bord Enseignant'}
-              {activeTab === 'notes' && 'Saisie des notes'}
-              {activeTab === 'absences' && 'Registre d\'Appel (Présences)'}
-              {activeTab === 'cahier' && 'Cahier de texte numérique'}
-              {activeTab === 'bulletins' && 'Bulletins scolaires'}
-              {activeTab === 'statistiques' && 'Statistiques mensuelles des élèves'}
-              {activeTab === 'messagerie' && 'Messagerie'}
-            </h2>
+            <div className="md:hidden w-8 h-8 bg-[#1a1a1a] text-white rounded-lg flex items-center justify-center font-bold text-xs flex-shrink-0">AS</div>
+            <div className="flex flex-col sm:flex-row sm:items-center gap-0.5 sm:gap-2">
+              <span className="font-extrabold text-[#1a1a1a] text-xs sm:text-sm tracking-tight">AKPANY SCHOOL</span>
+              <span className="hidden sm:inline text-xs text-[#9e9e9e] font-semibold">•</span>
+              <h2 className="font-sans font-semibold text-[#9e9e9e] sm:text-[#1a1a1a] text-xs sm:text-sm tracking-tight truncate">
+                {activeTab === 'dashboard' && 'Tableau de bord Enseignant'}
+                {activeTab === 'notes' && 'Saisie des notes'}
+                {activeTab === 'absences' && 'Registre d\'Appel (Présences)'}
+                {activeTab === 'cahier' && 'Cahier de texte numérique'}
+                {activeTab === 'bulletins' && 'Bulletins scolaires'}
+                {activeTab === 'statistiques' && 'Statistiques mensuelles des élèves'}
+                {activeTab === 'messagerie' && 'Messagerie'}
+              </h2>
+            </div>
           </div>
 
           <div className="flex items-center gap-4">

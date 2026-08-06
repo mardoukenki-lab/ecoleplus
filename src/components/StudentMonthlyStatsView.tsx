@@ -496,7 +496,7 @@ export default function StudentMonthlyStatsView({
           )}
 
           <div className="pt-3 border-t border-[#e0e0e0] text-[11px] text-[#9e9e9e] flex justify-between items-center">
-            <span>ÉcolePlus — Statistiques v2.0</span>
+            <span>AKPANY SCHOOL — Statistiques v2.0</span>
             <button
               onClick={handleExportCSV}
               className="font-bold text-[#1a1a1a] hover:underline flex items-center gap-1 cursor-pointer"

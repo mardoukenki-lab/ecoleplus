@@ -92,7 +92,7 @@ export default function ParentView({ user, onLogout, showToast }: ParentViewProp
           if (change.type === 'added') {
             const newNotif = change.doc.data() as AppNotification;
             if (newNotif.unread) {
-              triggerBrowserPushNotification('ALERTE TEMPS RÉEL ÉCOLEPLUS', newNotif.text, newNotif.icon || '🔔');
+              triggerBrowserPushNotification('ALERTE TEMPS RÉEL AKPANY SCHOOL', newNotif.text, newNotif.icon || '🔔');
               showToast(`🔔 ALERTE TEMPS RÉEL (Email & Push envoyé) : ${newNotif.text}`);
             }
           }
@@ -218,9 +218,9 @@ export default function ParentView({ user, onLogout, showToast }: ParentViewProp
       {/* SIDEBAR DESKTOP */}
       <aside className="hidden md:flex md:w-64 bg-white border-r border-[#e0e0e0] flex-col flex-shrink-0">
         <div className="p-6 border-b border-[#e0e0e0] flex items-center gap-3">
-          <div className="w-9 h-9 bg-[#1a1a1a] text-white rounded-xl flex items-center justify-center font-bold text-sm">EP</div>
+          <div className="w-9 h-9 bg-[#1a1a1a] text-white rounded-xl flex items-center justify-center font-bold text-sm tracking-tight">AS</div>
           <div>
-            <div className="font-sans font-semibold text-[#1a1a1a] text-sm tracking-tight leading-none">ÉcolePlus</div>
+            <div className="font-sans font-bold text-[#1a1a1a] text-sm tracking-tight leading-none">AKPANY SCHOOL</div>
             <div className="text-[10px] text-[#9e9e9e] font-semibold tracking-wide uppercase mt-1">Espace Parent</div>
           </div>
         </div>
@@ -318,9 +318,11 @@ export default function ParentView({ user, onLogout, showToast }: ParentViewProp
         {/* HEADER */}
         <header className="bg-white border-b border-[#e0e0e0] min-h-16 py-2 px-4 md:px-8 flex items-center justify-between flex-shrink-0">
           <div className="flex items-center gap-3 min-w-0">
-            <div className="md:hidden w-8 h-8 bg-[#1a1a1a] text-white rounded-lg flex items-center justify-center font-bold text-xs flex-shrink-0">EP</div>
-            <div className="flex flex-col sm:flex-row sm:items-center gap-1 sm:gap-3 min-w-0">
-              <h2 className="font-sans font-semibold text-[#1a1a1a] text-xs sm:text-base tracking-tight truncate">
+            <div className="md:hidden w-8 h-8 bg-[#1a1a1a] text-white rounded-lg flex items-center justify-center font-bold text-xs flex-shrink-0">AS</div>
+            <div className="flex flex-col sm:flex-row sm:items-center gap-1 sm:gap-2 min-w-0">
+              <span className="font-extrabold text-[#1a1a1a] text-xs sm:text-sm tracking-tight flex-shrink-0">AKPANY SCHOOL</span>
+              <span className="hidden sm:inline text-xs text-[#9e9e9e] font-semibold">•</span>
+              <h2 className="font-sans font-semibold text-[#9e9e9e] sm:text-[#1a1a1a] text-xs sm:text-sm tracking-tight truncate">
                 {activeTab === 'dashboard' && 'Suivi de l\'élève'}
                 {activeTab === 'resultats' && 'Relevé de notes détaillé'}
                 {activeTab === 'statistiques' && 'Statistiques mensuelles de l\'élève'}
@@ -1026,12 +1028,12 @@ export default function ParentView({ user, onLogout, showToast }: ParentViewProp
                           onClick={() => {
                             setSelectedEmailSample({
                               title: `Notification Scolaire — ${selectedKid?.nom || 'Élève'}`,
-                              subject: `[ÉcolePlus] Alerte officielle concernant ${selectedKid?.nom || 'votre enfant'}`,
+                              subject: `[AKPANY SCHOOL] Alerte officielle concernant ${selectedKid?.nom || 'votre enfant'}`,
                               date: new Date().toLocaleString('fr-FR'),
                               contentHtml: `
                                 <div style="font-family: Arial, sans-serif; max-width: 600px; margin: 0 auto; border: 1px solid #e0e0e0; border-radius: 16px; overflow: hidden; background: #ffffff;">
                                   <div style="background: #1a1a1a; color: #ffffff; padding: 24px; text-align: center;">
-                                    <h2 style="margin: 0; font-size: 20px; font-weight: 700;">🏫 ÉcolePlus — Côte d'Ivoire</h2>
+                                    <h2 style="margin: 0; font-size: 20px; font-weight: 700;">🏫 AKPANY SCHOOL — Côte d'Ivoire</h2>
                                     <p style="margin: 4px 0 0 0; font-size: 12px; color: #9e9e9e;">Notification Officielle à l'Attention du Parent</p>
                                   </div>
                                   <div style="padding: 24px; color: #1a1a1a; line-height: 1.6; font-size: 14px;">
@@ -1041,13 +1043,13 @@ export default function ParentView({ user, onLogout, showToast }: ParentViewProp
                                       <strong style="display: block; margin-bottom: 6px; text-transform: uppercase; font-size: 11px; color: #6c757d;">RÉSUMÉ DE L'ALERTE :</strong>
                                       <p style="margin: 0; font-weight: 600;">Saisie d'une observation par l'équipe pédagogique & mise à jour du carnet de suivi.</p>
                                     </div>
-                                    <p style="font-size: 12px; color: #6c757d;">Vous pouvez consulter le relevé complet et échanger directement avec l'établissement depuis votre espace parent ÉcolePlus.</p>
+                                    <p style="font-size: 12px; color: #6c757d;">Vous pouvez consulter le relevé complet et échanger directement avec l'établissement depuis votre espace parent AKPANY SCHOOL.</p>
                                     <div style="text-align: center; margin-top: 28px;">
                                       <a href="#" style="background: #1a1a1a; color: #ffffff; padding: 12px 24px; border-radius: 10px; text-decoration: none; font-weight: bold; font-size: 13px; display: inline-block;">Accéder à mon Espace Parent</a>
                                     </div>
                                   </div>
                                   <div style="background: #f5f5f5; padding: 16px; text-align: center; font-size: 11px; color: #9e9e9e; border-top: 1px solid #e0e0e0;">
-                                    Ce courriel automatique a été envoyé à <strong>${user.email || 'parent@ecoleplus.ci'}</strong>.<br/>© 2026 ÉcolePlus — Gestion Scolaire & Suivi Parent.
+                                    Ce courriel automatique a été envoyé à <strong>${user.email || 'parent@akpanyschool.ci'}</strong>.<br/>© 2026 AKPANY SCHOOL — Gestion Scolaire & Suivi Parent.
                                   </div>
                                 </div>
                               `
@@ -1112,7 +1114,7 @@ export default function ParentView({ user, onLogout, showToast }: ParentViewProp
                         <button
                           onClick={() => {
                             triggerBrowserPushNotification(
-                              'Alerte Critique ÉcolePlus (Test)',
+                              'Alerte Critique AKPANY SCHOOL (Test)',
                               `Test d'envoi d'alerte en direct via Service Worker pour ${user.nom}. Tout fonctionne !`,
                               '⚡'
                             );

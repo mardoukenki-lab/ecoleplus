@@ -15,7 +15,7 @@ export async function initServiceWorker(): Promise<ServiceWorkerRegistration | n
   try {
     const registration = await navigator.serviceWorker.register('/sw.js', { scope: '/' });
     swRegistration = registration;
-    console.log('✅ Service Worker ÉcolePlus prêt :', registration.scope);
+    console.log('✅ Service Worker AKPANY SCHOOL prêt :', registration.scope);
     return registration;
   } catch (err) {
     console.warn('⚠️ Échec de l\'enregistrement du Service Worker :', err);
@@ -206,7 +206,7 @@ export async function dispatchParentNotification(params: DispatchNotificationPar
     setTimeout(async () => {
       await triggerEmailNotification(
         params.parentEmail!,
-        `[ÉcolePlus] ${params.title}`,
+        `[AKPANY SCHOOL] ${params.title}`,
         `<p>${params.text}</p>`,
         notifId
       );

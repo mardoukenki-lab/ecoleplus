@@ -156,7 +156,7 @@ export default function BulletinView({ currentUser, studentsList, showToast }: B
         <div className="bg-[#1a1a1a] text-white p-6 sm:p-8 flex justify-between items-start flex-wrap gap-4">
           <div>
             <span className="text-[10px] font-bold uppercase tracking-widest text-[#9e9e9e]">
-              REPUBLIQUE DE COTE D'IVOIRE · ECOLEPLUS
+              REPUBLIQUE DE COTE D'IVOIRE · AKPANY SCHOOL
             </span>
             <h2 className="font-sans font-bold text-2xl mt-1 tracking-tight">Bulletin Trimestriel de Notes</h2>
             <p className="text-xs text-[#9e9e9e] mt-1 font-medium">Relevé officiel des résultats scolaires en direct</p>

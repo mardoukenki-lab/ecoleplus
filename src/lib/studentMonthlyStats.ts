@@ -307,14 +307,14 @@ export function exportMonthlyStatsToCSV(stats: MonthlyStudentStat[], filenameSuf
   document.body.removeChild(link);
 }
 
-export function exportMonthlyReportToPDF(stat: MonthlyStudentStat, schoolName = 'ÉCOLEPLUS'): void {
+export function exportMonthlyReportToPDF(stat: MonthlyStudentStat, schoolName = 'AKPANY SCHOOL'): void {
   printIndividualMonthlyReport(stat, schoolName);
 }
 
 /**
  * Print/Export individual monthly student report card (Fiche Mensuelle de l'Élève)
  */
-export function printIndividualMonthlyReport(stat: MonthlyStudentStat, schoolName = 'ÉCOLEPLUS'): void {
+export function printIndividualMonthlyReport(stat: MonthlyStudentStat, schoolName = 'AKPANY SCHOOL'): void {
   const printWindow = window.open('', '_blank', 'width=850,height=1100');
   if (!printWindow) return;
 

@@ -152,9 +152,9 @@ export default function LoginScreen({ onLoginSuccess, onShowProfReg, onShowParen
         
         {/* Header */}
         <div className="flex items-center gap-3 mb-8">
-          <div className="w-11 h-11 bg-[#1a1a1a] text-white rounded-2xl flex items-center justify-center text-xl font-bold shadow-sm">EP</div>
+          <div className="w-11 h-11 bg-[#1a1a1a] text-white rounded-2xl flex items-center justify-center text-xl font-bold shadow-sm">AS</div>
           <div>
-            <h1 className="font-sans font-bold text-2xl text-[#1a1a1a] tracking-tight leading-none">ÉcolePlus</h1>
+            <h1 className="font-sans font-bold text-2xl text-[#1a1a1a] tracking-tight leading-none">AKPANY SCHOOL</h1>
             <span className="text-xs text-[#9e9e9e] font-medium tracking-tight mt-1 block">Plateforme éducative unifiée</span>
           </div>
         </div>

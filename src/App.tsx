@@ -147,7 +147,7 @@ export default function App() {
     return (
       <div className="flex h-screen bg-[#f5f5f5] items-center justify-center flex-col gap-4">
         <div className="w-10 h-10 border-2 border-[#1a1a1a] border-t-transparent rounded-full animate-spin"></div>
-        <div className="text-[#1a1a1a] font-sans text-xs font-semibold uppercase tracking-widest">Chargement de ÉcolePlus...</div>
+        <div className="text-[#1a1a1a] font-sans text-xs font-semibold uppercase tracking-widest">Chargement de AKPANY SCHOOL...</div>
       </div>
     );
   }
@@ -210,7 +210,7 @@ export default function App() {
             <div className="w-12 h-12 bg-[#f5f5f5] text-red-500 rounded-2xl mx-auto flex items-center justify-center text-lg">✕</div>
             <h2 className="font-sans font-semibold text-xl text-[#1a1a1a] tracking-tight">Accès refusé</h2>
             <p className="text-sm text-[#9e9e9e]">
-              Votre demande d'inscription sur ÉcolePlus a été refusée par l'administration du Lycée Moderne de Dabou.
+              Votre demande d'inscription sur AKPANY SCHOOL a été refusée par l'administration du Lycée Moderne de Dabou.
             </p>
             <button
               onClick={handleLogout}

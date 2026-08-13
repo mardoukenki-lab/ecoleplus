@@ -2,7 +2,8 @@ import React, { useState, useEffect } from 'react';
 import { db } from '../lib/firebase';
 import { collection, onSnapshot } from 'firebase/firestore';
 import { Eleve, Note, UserProfile } from '../types';
-import { Award, Printer, Download, BookOpen, User, Sparkles } from 'lucide-react';
+import { Award, Printer, Download, BookOpen, User, Sparkles, FileText } from 'lucide-react';
+import { exportBulletinToPDF } from '../lib/bulletinExport';
 
 interface BulletinViewProps {
   currentUser: UserProfile;
@@ -108,6 +109,21 @@ export default function BulletinView({ currentUser, studentsList, showToast }: B
     window.print();
   };
 
+  const handleExportPDF = () => {
+    if (!selectedStudent) {
+      showToast('⚠️ Veuillez sélectionner un élève valide.');
+      return;
+    }
+    exportBulletinToPDF(
+      selectedStudent,
+      selectedTrimestre,
+      calculatedRows,
+      overallAverageStr,
+      overallMention
+    );
+    showToast(`📄 Génération du Bulletin PDF pour ${selectedStudent.nom} (${selectedTrimestre})...`);
+  };
+
   return (
     <div className="space-y-6">
       {/* Controls */}
@@ -142,12 +158,20 @@ export default function BulletinView({ currentUser, studentsList, showToast }: B
           </div>
         </div>
 
-        <button
-          onClick={handlePrint}
-          className="bg-[#1a1a1a] hover:bg-black text-white font-bold py-2.5 px-5 rounded-xl text-xs flex items-center gap-2 cursor-pointer uppercase tracking-widest transition-all shadow-2xs"
-        >
-          <Printer size={15} /> Imprimer le Bulletin
-        </button>
+        <div className="flex items-center gap-3 flex-wrap">
+          <button
+            onClick={handleExportPDF}
+            className="bg-[#1a1a1a] hover:bg-black text-white font-bold py-2.5 px-5 rounded-xl text-xs flex items-center gap-2 cursor-pointer uppercase tracking-widest transition-all shadow-sm active:scale-95"
+          >
+            <FileText size={15} /> Exporter en PDF
+          </button>
+          <button
+            onClick={handlePrint}
+            className="bg-[#f5f5f5] hover:bg-[#e0e0e0] text-[#1a1a1a] font-bold py-2.5 px-4 rounded-xl text-xs flex items-center gap-2 cursor-pointer uppercase tracking-widest transition-all border border-[#e0e0e0]"
+          >
+            <Printer size={15} /> Imprimer
+          </button>
+        </div>
       </div>
 
       {/* Official Bulletin Document Card */}

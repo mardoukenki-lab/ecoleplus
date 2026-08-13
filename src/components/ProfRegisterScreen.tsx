@@ -153,7 +153,7 @@ export default function ProfRegisterScreen({ onBack, showToast }: ProfRegisterSc
               <input
                 type="email"
                 className="w-full px-3.5 py-2.5 border border-[#e0e0e0] rounded-xl text-xs focus:outline-none focus:border-[#1a1a1a] bg-[#f5f5f5]/20 placeholder:text-[#9e9e9e]/60 text-[#1a1a1a]"
-                placeholder="vous@ecoleplus.ci"
+                placeholder="vous@akpanyschool.store"
                 value={email}
                 onChange={(e) => setEmail(e.target.value)}
                 required

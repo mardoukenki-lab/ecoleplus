@@ -9,6 +9,7 @@ import ParentRegisterScreen from './components/ParentRegisterScreen';
 import AdminView from './components/AdminView';
 import ProfView from './components/ProfView';
 import ParentView from './components/ParentView';
+import PWAInstallPrompt from './components/PWAInstallPrompt';
 import { clearAllDatabaseData } from './lib/demoData';
 
 interface Toast {
@@ -258,6 +259,9 @@ export default function App() {
           )}
         </>
       )}
+
+      {/* PWA INSTALL BANNER */}
+      <PWAInstallPrompt />
 
       {/* TOAST SYSTEM COVERS */}
       <div className="fixed bottom-6 right-6 z-[9999] flex flex-col gap-2 pointer-events-none">

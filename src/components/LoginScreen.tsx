@@ -174,7 +174,7 @@ export default function LoginScreen({ onLoginSuccess, onShowProfReg, onShowParen
               className="w-full px-3.5 py-2.5 border border-[#e0e0e0] rounded-xl text-xs focus:outline-none focus:border-[#1a1a1a] bg-[#f5f5f5]/20 placeholder:text-[#9e9e9e]/60 text-[#1a1a1a]"
               value={email}
               onChange={(e) => setEmail(e.target.value)}
-              placeholder="votre.email@ecoleplus.ci"
+              placeholder="votre.email@akpanyschool.store"
               required
             />
           </div>

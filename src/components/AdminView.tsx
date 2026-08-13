@@ -2717,7 +2717,7 @@ export default function AdminView({ user, onLogout, showToast }: AdminViewProps)
                   value={newProfEmail}
                   onChange={(e) => setNewProfEmail(e.target.value)}
                   className="w-full px-3 py-2 border border-[#e0e0e0] rounded-xl text-xs bg-white focus:outline-none focus:border-[#1a1a1a] text-[#1a1a1a]" 
-                  placeholder="prof@ecoleplus.ci" 
+                  placeholder="prof@akpanyschool.store" 
                   required
                 />
               </div>

@@ -420,28 +420,38 @@ export default function ProfView({ user, onLogout, showToast }: ProfViewProps) {
       }
 
       // Real envoi alert to parent UIDs
-      for (const [pUid, pEmail] of targetParents) {
-        const notifId = `notif_abs_${student.id}_${Date.now()}_${Math.random().toString(36).substring(2,6)}`;
-        await setDoc(doc(db, 'notifications', notifId), {
-          id: notifId,
-          userUid: pUid,
-          icon: status === 'absent' ? '📌' : '⏱',
-          bg: status === 'absent' ? 'bg-red-100 text-red-700' : 'bg-yellow-100 text-yellow-700',
-          text: status === 'absent'
-            ? `Votre enfant ${student.nom} est marqué absent aujourd'hui en ${activeMatiere} à ${nowTime}.`
-            : `Votre enfant ${student.nom} est marqué en retard de cours aujourd'hui en ${activeMatiere}.`,
-          time: 'à l\'instant',
-          unread: true,
-          type: 'absence',
-          destinataireEmail: pEmail || null,
-          parentEmail: pEmail || null,
-          emailStatus: 'pending',
-          pushSent: true,
-          createdAt: new Date().toISOString()
+      const notifTitle = status === 'absent' 
+        ? `🚨 Signalement d'absence : ${student.nom}`
+        : `⏱ Signalement de retard : ${student.nom}`;
+
+      const notifText = status === 'absent'
+        ? `🚨 Alerte Ponctualité : Votre enfant ${student.nom} (${student.classe || activeClasse}) a été marqué(e) ABSENT(E) par l'enseignant M./Mme ${user.nom} aujourd'hui à ${nowTime} (Cours : ${activeMatiere || 'Général'}).`
+        : `⏱ Alerte Ponctualité : Votre enfant ${student.nom} (${student.classe || activeClasse}) a été marqué(e) EN RETARD par l'enseignant M./Mme ${user.nom} aujourd'hui à ${nowTime} (Cours : ${activeMatiere || 'Général'}).`;
+
+      if (targetParents.size > 0) {
+        for (const [pUid, pEmail] of targetParents) {
+          await dispatchParentNotification({
+            targetUid: pUid,
+            icon: status === 'absent' ? '🚨' : '⏱',
+            bg: status === 'absent' ? 'bg-red-100 text-red-700' : 'bg-amber-100 text-amber-800',
+            title: notifTitle,
+            text: notifText,
+            parentEmail: pEmail,
+            type: 'absence'
+          });
+        }
+      } else {
+        await dispatchParentNotification({
+          targetUid: 'target_parent',
+          icon: status === 'absent' ? '🚨' : '⏱',
+          bg: status === 'absent' ? 'bg-red-100 text-red-700' : 'bg-amber-100 text-amber-800',
+          title: notifTitle,
+          text: notifText,
+          type: 'absence'
         });
       }
 
-      showToast(`🔔 Appel enregistré pour ${student.nom} — ${targetParents.size > 0 ? targetParents.size : 1} parent(s) notifié(s) (Email & Push) !`);
+      showToast(`🔔 Appel enregistré pour ${student.nom} — Notification automatique envoyée au parent (Email & Push) !`);
     } catch (err) {
       console.error(err);
     }

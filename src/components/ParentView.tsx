@@ -589,7 +589,15 @@ export default function ParentView({ user, onLogout, showToast }: ParentViewProp
                   <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
                     {/* Latest Marks Widget */}
                     <div className="bg-white rounded-[24px] border border-[#e0e0e0] p-6 shadow-sm space-y-4">
-                      <h3 className="font-bold text-[10px] uppercase tracking-widest text-[#9e9e9e] mb-2">📝 Dernières notes obtenues</h3>
+                      <div className="flex justify-between items-center mb-2">
+                        <h3 className="font-bold text-[10px] uppercase tracking-widest text-[#9e9e9e]">📝 Dernières notes obtenues</h3>
+                        <button
+                          onClick={() => setActiveTab('resultats')}
+                          className="text-[10px] font-extrabold text-[#1a1a1a] hover:underline flex items-center gap-1 cursor-pointer uppercase tracking-wider"
+                        >
+                          <FileText size={12} /> Exporter Bulletin PDF ➔
+                        </button>
+                      </div>
                       <div className="divide-y divide-[#e0e0e0]/60">
                         {notes.slice(0, 5).map((n, i) => (
                           <div key={i} className="flex justify-between items-center py-3">
@@ -981,7 +989,7 @@ export default function ParentView({ user, onLogout, showToast }: ParentViewProp
                           </span>
                         </div>
                         <p className="text-xs text-[#9e9e9e] mt-1 font-medium">
-                          Transmises à l'adresse officielle : <strong className="text-[#1a1a1a]">{user.email || 'parent@ecoleplus.ci'}</strong> (Absences, Bulletins, Observations, Frais)
+                          Transmises à l'adresse officielle : <strong className="text-[#1a1a1a]">{user.email || 'parent@akpanyschool.store'}</strong> (Absences, Bulletins, Observations, Frais)
                         </p>
                       </div>
 
@@ -1005,7 +1013,7 @@ export default function ParentView({ user, onLogout, showToast }: ParentViewProp
                         </button>
                         <button
                           onClick={async () => {
-                            const recipient = user.email || 'parent@ecoleplus.ci';
+                            const recipient = user.email || 'parent@akpanyschool.store';
                             showToast(`📧 Déclenchement de l'envoi de l'e-mail test à ${recipient}...`);
                             
                             await dispatchParentNotification({
@@ -1043,13 +1051,13 @@ export default function ParentView({ user, onLogout, showToast }: ParentViewProp
                                       <strong style="display: block; margin-bottom: 6px; text-transform: uppercase; font-size: 11px; color: #6c757d;">RÉSUMÉ DE L'ALERTE :</strong>
                                       <p style="margin: 0; font-weight: 600;">Saisie d'une observation par l'équipe pédagogique & mise à jour du carnet de suivi.</p>
                                     </div>
-                                    <p style="font-size: 12px; color: #6c757d;">Vous pouvez consulter le relevé complet et échanger directement avec l'établissement depuis votre espace parent AKPANY SCHOOL.</p>
+                                    <p style="font-size: 12px; color: #6c757d;">Vous pouvez consulter le relevé complet et échanger directement avec l'établissement depuis votre espace parent AKPANY SCHOOL sur <a href="https://demo.akpanyschool.store/" style="color: #1a1a1a; font-weight: bold;">demo.akpanyschool.store</a>.</p>
                                     <div style="text-align: center; margin-top: 28px;">
-                                      <a href="#" style="background: #1a1a1a; color: #ffffff; padding: 12px 24px; border-radius: 10px; text-decoration: none; font-weight: bold; font-size: 13px; display: inline-block;">Accéder à mon Espace Parent</a>
+                                      <a href="https://demo.akpanyschool.store/" target="_blank" rel="noopener noreferrer" style="background: #1a1a1a; color: #ffffff; padding: 12px 24px; border-radius: 10px; text-decoration: none; font-weight: bold; font-size: 13px; display: inline-block;">Accéder à mon Espace Parent</a>
                                     </div>
                                   </div>
                                   <div style="background: #f5f5f5; padding: 16px; text-align: center; font-size: 11px; color: #9e9e9e; border-top: 1px solid #e0e0e0;">
-                                    Ce courriel automatique a été envoyé à <strong>${user.email || 'parent@akpanyschool.ci'}</strong>.<br/>© 2026 AKPANY SCHOOL — Gestion Scolaire & Suivi Parent.
+                                    Ce courriel automatique a été envoyé à <strong>${user.email || 'parent@akpanyschool.store'}</strong>.<br/>© 2026 AKPANY SCHOOL — <a href="https://demo.akpanyschool.store/" style="color: #666; text-decoration: underline;">https://demo.akpanyschool.store/</a>
                                   </div>
                                 </div>
                               `

@@ -1,15 +1,18 @@
 import React, { useState, useEffect } from 'react';
 import { db, handleFirestoreError, OperationType } from '../lib/firebase';
 import { collection, query, where, getDocs, getDoc, doc, setDoc, updateDoc, onSnapshot, writeBatch } from 'firebase/firestore';
-import { UserProfile, Eleve, Note, Absence, CahierTexte, AppNotification, ScheduleSlot, Observation } from '../types';
-import { BookOpen, UserCheck, Clock, MessageSquare, Send, Check, X, LogOut, Bell, Save, AlertTriangle, Plus } from 'lucide-react';
+import { UserProfile, Eleve, Note, Absence, CahierTexte, AppNotification, ScheduleSlot, Observation, SubjectAssignment } from '../types';
+import { BookOpen, UserCheck, Clock, MessageSquare, Send, Check, X, LogOut, Bell, Save, AlertTriangle, Plus, FileText } from 'lucide-react';
 import MessagerieView from './MessagerieView';
 import EmploiDuTempsView from './EmploiDuTempsView';
 import BulletinView from './BulletinView';
 import ClassesView from './ClassesView';
 import StudentMonthlyStatsView from './StudentMonthlyStatsView';
+import ExamCalendarView from './ExamCalendarView';
+import BulletinPrintModal from './BulletinPrintModal';
 import { Paiement } from '../types';
 import { dispatchParentNotification } from '../lib/notifications';
+import { cacheOfflineStudents, cacheOfflineSchedules } from '../lib/offlineSync';
 
 interface ProfViewProps {
   user: UserProfile;
@@ -51,6 +54,7 @@ export default function ProfView({ user, onLogout, showToast }: ProfViewProps) {
 
   // Absence Reporting Modal State
   const [showAbsenceModal, setShowAbsenceModal] = useState(false);
+  const [modalStudentForBulletin, setModalStudentForBulletin] = useState<Eleve | null>(null);
   const [absenceStudentId, setAbsenceStudentId] = useState('');
   const [absenceDate, setAbsenceDate] = useState(new Date().toISOString().split('T')[0]);
   const [absenceHeure, setAbsenceHeure] = useState(new Date().toLocaleTimeString('fr-FR', { hour: '2-digit', minute: '2-digit' }));
@@ -75,12 +79,14 @@ export default function ProfView({ user, onLogout, showToast }: ProfViewProps) {
   const [allAbsencesList, setAllAbsencesList] = useState<Absence[]>([]);
   const [allPaiementsList, setAllPaiementsList] = useState<Paiement[]>([]);
 
-  // Real-time listener for global system metrics (Students, Notes count, Today Absences, Schedules, Classes)
+  const [classDocsList, setClassDocsList] = useState<{ name: string; assignments?: SubjectAssignment[]; titulaireUid?: string }[]>([]);
+
   useEffect(() => {
     const unsubAllEleves = onSnapshot(collection(db, 'eleves'), (snap) => {
       const list: Eleve[] = [];
       snap.forEach((d) => list.push(d.data() as Eleve));
       setAllStudents(list);
+      cacheOfflineStudents(list);
     }, (err) => console.warn('All students notice:', err));
 
     const unsubAllNotes = onSnapshot(collection(db, 'notes'), (snap) => {
@@ -112,15 +118,25 @@ export default function ProfView({ user, onLogout, showToast }: ProfViewProps) {
       const list: ScheduleSlot[] = [];
       snap.forEach((d) => list.push(d.data() as ScheduleSlot));
       setAllSchedules(list);
+      cacheOfflineSchedules(list);
     }, (err) => console.warn('Schedules notice:', err));
 
     const unsubClasses = onSnapshot(collection(db, 'classes'), (snap) => {
       const list: string[] = [];
+      const docsList: { name: string; assignments?: SubjectAssignment[]; titulaireUid?: string }[] = [];
       snap.forEach((d) => {
         const data = d.data();
-        if (data.name) list.push(data.name);
+        if (data.name) {
+          list.push(data.name);
+          docsList.push({
+            name: data.name,
+            assignments: data.assignments || [],
+            titulaireUid: data.titulaireUid
+          });
+        }
       });
       setFirestoreClasses(list);
+      setClassDocsList(docsList);
     }, (err) => console.warn('Classes notice:', err));
 
     return () => {
@@ -144,6 +160,21 @@ export default function ProfView({ user, onLogout, showToast }: ProfViewProps) {
       setActiveClasse(classesList[0]);
     }
   }, [classesList]);
+
+  // Auto detect subject for active class for this teacher
+  useEffect(() => {
+    if (!activeClasse) return;
+    const currentClassDoc = classDocsList.find((c) => c.name.trim().toLowerCase() === activeClasse.trim().toLowerCase());
+    const matchedAssignment = currentClassDoc?.assignments?.find(
+      (a) => a.profUid === user.uid || (a.profNom && a.profNom.toLowerCase() === user.nom.toLowerCase())
+    );
+
+    if (matchedAssignment && matchedAssignment.matiere) {
+      setActiveMatiere(matchedAssignment.matiere);
+    } else if (user.matiere) {
+      setActiveMatiere(user.matiere);
+    }
+  }, [activeClasse, classDocsList, user.uid, user.nom, user.matiere]);
 
   // Load students for active class
   useEffect(() => {
@@ -656,6 +687,12 @@ export default function ProfView({ user, onLogout, showToast }: ProfViewProps) {
                 📅 Emploi du temps
               </button>
               <button
+                onClick={() => setActiveTab('examens')}
+                className={`w-full flex items-center gap-3 px-3 py-2.5 rounded-xl text-xs font-semibold tracking-tight transition-all cursor-pointer ${activeTab === 'examens' ? 'bg-[#1a1a1a] text-white' : 'text-[#9e9e9e] hover:bg-[#f5f5f5]/60 hover:text-[#1a1a1a]'}`}
+              >
+                🗓️ Calendrier Examens
+              </button>
+              <button
                 onClick={() => setActiveTab('bulletins')}
                 className={`w-full flex items-center gap-3 px-3 py-2.5 rounded-xl text-xs font-semibold tracking-tight transition-all cursor-pointer ${activeTab === 'bulletins' ? 'bg-[#1a1a1a] text-white' : 'text-[#9e9e9e] hover:bg-[#f5f5f5]/60 hover:text-[#1a1a1a]'}`}
               >
@@ -868,34 +905,70 @@ export default function ProfView({ user, onLogout, showToast }: ProfViewProps) {
           {activeTab === 'notes' && (
             <div className="space-y-6">
               <div className="bg-white rounded-[24px] border border-[#e0e0e0] p-4 shadow-sm flex items-center justify-between gap-4 flex-wrap">
-                <div className="flex items-center gap-3">
-                  <select 
-                    value={activeClasse}
-                    onChange={(e) => setActiveClasse(e.target.value)}
-                    className="px-3 py-2 border border-[#e0e0e0] rounded-xl text-xs bg-white focus:outline-none focus:border-[#1a1a1a] text-[#1a1a1a]"
-                  >
-                    {classesList.map(c => (
-                      <option key={c} value={c}>{c}</option>
-                    ))}
-                  </select>
-                  <select 
-                    value={activeTrimestre}
-                    onChange={(e) => setActiveTrimestre(e.target.value)}
-                    className="px-3 py-2 border border-[#e0e0e0] rounded-xl text-xs bg-white focus:outline-none focus:border-[#1a1a1a] text-[#1a1a1a]"
-                  >
-                    <option>Trimestre 1</option>
-                    <option>Trimestre 2</option>
-                    <option>Trimestre 3</option>
-                  </select>
-                  <select 
-                    value={activeEval}
-                    onChange={(e) => setActiveEval(e.target.value as any)}
-                    className="px-3 py-2 border border-[#e0e0e0] rounded-xl text-xs bg-white focus:outline-none focus:border-[#1a1a1a] text-[#1a1a1a]"
-                  >
-                    <option value="devoir1">Devoir 1</option>
-                    <option value="devoir2">Devoir 2</option>
-                    <option value="compo">Composition</option>
-                  </select>
+                <div className="flex items-center gap-3 flex-wrap">
+                  <div>
+                    <span className="block text-[9px] font-bold text-[#9e9e9e] uppercase tracking-widest mb-1">Classe</span>
+                    <select 
+                      value={activeClasse}
+                      onChange={(e) => setActiveClasse(e.target.value)}
+                      className="px-3 py-2 border border-[#e0e0e0] rounded-xl text-xs bg-white focus:outline-none focus:border-[#1a1a1a] text-[#1a1a1a] font-semibold"
+                    >
+                      {classesList.map(c => (
+                        <option key={c} value={c}>{c}</option>
+                      ))}
+                    </select>
+                  </div>
+
+                  <div>
+                    <span className="block text-[9px] font-bold text-[#9e9e9e] uppercase tracking-widest mb-1">Matière</span>
+                    <select 
+                      value={activeMatiere}
+                      onChange={(e) => setActiveMatiere(e.target.value)}
+                      className="px-3 py-2 border border-[#e0e0e0] rounded-xl text-xs bg-white focus:outline-none focus:border-[#1a1a1a] text-[#1a1a1a] font-bold text-amber-900 bg-amber-50/50"
+                    >
+                      {[
+                        'Mathématiques',
+                        'Français',
+                        'Espagnol',
+                        'Philosophie',
+                        'Anglais',
+                        'Histoire-Géographie',
+                        'SVT',
+                        'Physique-Chimie',
+                        'EPS',
+                        'Allemand',
+                        'Informatique'
+                      ].map(m => (
+                        <option key={m} value={m}>{m}</option>
+                      ))}
+                    </select>
+                  </div>
+
+                  <div>
+                    <span className="block text-[9px] font-bold text-[#9e9e9e] uppercase tracking-widest mb-1">Période</span>
+                    <select 
+                      value={activeTrimestre}
+                      onChange={(e) => setActiveTrimestre(e.target.value)}
+                      className="px-3 py-2 border border-[#e0e0e0] rounded-xl text-xs bg-white focus:outline-none focus:border-[#1a1a1a] text-[#1a1a1a] font-semibold"
+                    >
+                      <option>Trimestre 1</option>
+                      <option>Trimestre 2</option>
+                      <option>Trimestre 3</option>
+                    </select>
+                  </div>
+
+                  <div>
+                    <span className="block text-[9px] font-bold text-[#9e9e9e] uppercase tracking-widest mb-1">Évaluation</span>
+                    <select 
+                      value={activeEval}
+                      onChange={(e) => setActiveEval(e.target.value as any)}
+                      className="px-3 py-2 border border-[#e0e0e0] rounded-xl text-xs bg-white focus:outline-none focus:border-[#1a1a1a] text-[#1a1a1a] font-semibold"
+                    >
+                      <option value="devoir1">Devoir 1</option>
+                      <option value="devoir2">Devoir 2</option>
+                      <option value="compo">Composition</option>
+                    </select>
+                  </div>
                 </div>
 
                 <button 
@@ -913,6 +986,7 @@ export default function ProfView({ user, onLogout, showToast }: ProfViewProps) {
                       <th className="py-3 px-5">Élève</th>
                       <th className="py-3 px-5">Note /20</th>
                       <th className="py-3 px-5">Observation</th>
+                      <th className="py-3 px-5 text-right">Bulletin</th>
                     </tr>
                   </thead>
                   <tbody className="divide-y divide-[#e0e0e0]/60 text-xs">
@@ -939,11 +1013,21 @@ export default function ProfView({ user, onLogout, showToast }: ProfViewProps) {
                             enteredNotes[s.id] >= 10 ? <span className="text-[#9e9e9e]">Passable</span> : <span className="text-red-700">Insuffisant</span>
                           ) : 'Saisie en attente...'}
                         </td>
+                        <td className="py-3 px-5 text-right">
+                          <button
+                            type="button"
+                            onClick={() => setModalStudentForBulletin(s)}
+                            className="px-2.5 py-1 bg-[#f5f5f5] hover:bg-[#1a1a1a] hover:text-white text-[#1a1a1a] rounded-lg text-[10px] font-bold transition-all border border-[#e0e0e0] inline-flex items-center gap-1 cursor-pointer active:scale-95"
+                            title="Générer et imprimer le bulletin de notes en PDF"
+                          >
+                            <FileText size={11} /> Bulletin PDF
+                          </button>
+                        </td>
                       </tr>
                     ))}
                     {students.length === 0 && (
                       <tr>
-                        <td colSpan={3} className="py-8 text-center text-xs text-[#9e9e9e]">
+                        <td colSpan={4} className="py-8 text-center text-xs text-[#9e9e9e]">
                           Aucun élève inscrit dans la classe {activeClasse}.
                         </td>
                       </tr>
@@ -1124,6 +1208,16 @@ export default function ProfView({ user, onLogout, showToast }: ProfViewProps) {
           {activeTab === 'emploi' && (
             <EmploiDuTempsView
               currentUser={user}
+              classesList={classesList}
+              showToast={showToast}
+            />
+          )}
+
+          {activeTab === 'examens' && (
+            <ExamCalendarView
+              currentUser={user}
+              userRole="prof"
+              students={allStudents}
               classesList={classesList}
               showToast={showToast}
             />
@@ -1346,6 +1440,12 @@ export default function ProfView({ user, onLogout, showToast }: ProfViewProps) {
                 📅 Emploi du temps
               </button>
               <button
+                onClick={() => { setActiveTab('examens'); setIsMobilePlusMenuOpen(false); }}
+                className="p-3 bg-[#f5f5f5] hover:bg-[#1a1a1a] hover:text-white rounded-xl text-left"
+              >
+                🗓️ Calendrier Examens
+              </button>
+              <button
                 onClick={() => { setActiveTab('bulletins'); setIsMobilePlusMenuOpen(false); }}
                 className="p-3 bg-[#f5f5f5] hover:bg-[#1a1a1a] hover:text-white rounded-xl text-left"
               >
@@ -1495,6 +1595,17 @@ export default function ProfView({ user, onLogout, showToast }: ProfViewProps) {
             </form>
           </div>
         </div>
+      )}
+
+      {/* Printable Bulletin Modal */}
+      {modalStudentForBulletin && (
+        <BulletinPrintModal
+          student={modalStudentForBulletin}
+          allStudents={allStudents}
+          initialTrimestre={activeTrimestre}
+          onClose={() => setModalStudentForBulletin(null)}
+          showToast={showToast}
+        />
       )}
     </div>
   );

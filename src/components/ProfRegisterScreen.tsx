@@ -2,7 +2,6 @@ import React, { useState } from 'react';
 import { auth, db } from '../lib/firebase';
 import { createUserWithEmailAndPassword, signInWithEmailAndPassword } from 'firebase/auth';
 import { doc, getDoc, setDoc } from 'firebase/firestore';
-import { ALLOWED_ADMIN_EMAILS, getAdminNom } from './LoginScreen';
 
 interface ProfRegisterScreenProps {
   onBack: () => void;

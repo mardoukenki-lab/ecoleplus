@@ -2,7 +2,7 @@ import React, { useState } from 'react';
 import { auth, db } from '../lib/firebase';
 import { createUserWithEmailAndPassword, signInWithEmailAndPassword } from 'firebase/auth';
 import { doc, setDoc, collection, query, where, getDocs } from 'firebase/firestore';
-import { ALLOWED_ADMIN_EMAILS, getAdminNom } from './LoginScreen';
+import { Eleve } from '../types';
 
 interface ParentRegisterScreenProps {
   onBack: () => void;
@@ -14,7 +14,7 @@ interface EnfantField {
   nom: string;
   classe: string;
   matricule: string;
-  matchedStudent: any | null;
+  matchedStudent: Eleve | null;
 }
 
 export default function ParentRegisterScreen({ onBack, showToast }: ParentRegisterScreenProps) {

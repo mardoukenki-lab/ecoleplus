@@ -14,9 +14,10 @@ service cloud.firestore {
       return get(/databases/$(database)/documents/users/$(request.auth.uid)).data;
     }
 
+    // Role verification: Uses Firebase Auth Custom Claims or Firestore User Role (no hardcoded emails)
     function isAdmin() {
       return isAuthenticated() && (
-        ('email' in request.auth.token && request.auth.token.email != null && request.auth.token.email.lower() == 'mardoukenki@gmail.com') ||
+        (request.auth.token != null && 'admin' in request.auth.token && request.auth.token.admin == true) ||
         (hasUserDoc() && 'role' in getUserData() && getUserData().role == 'admin')
       );
     }
@@ -35,61 +36,143 @@ service cloud.firestore {
       );
     }
 
-    // Users collection
+    function isParent() {
+      return isAuthenticated() && (
+        isAdmin() ||
+        (hasUserDoc() && 'role' in getUserData() && getUserData().role == 'parent')
+      );
+    }
+
+    function isParentOfEleve(eleveId) {
+      return isAuthenticated() && hasUserDoc() && (
+        ('enfants' in getUserData() && getUserData().enfants != null && eleveId in getUserData().enfants)
+      );
+    }
+
+    // Multi-tenant isolation helper functions
+    function getEtablissementId() {
+      return (hasUserDoc() && 'etablissementId' in getUserData() && getUserData().etablissementId != null)
+        ? getUserData().etablissementId
+        : 'akpany-principal';
+    }
+
+    // STRICT CHECK: Ensure document explicitly contains a non-empty string etablissementId
+    function hasValidEtablissement(data) {
+      return ('etablissementId' in data) &&
+             (data.etablissementId is string) &&
+             (data.etablissementId.size() > 0);
+    }
+
+    // Enforce that read documents MUST be scoped by a valid etablissementId
+    function belongsToSameEtablissement() {
+      return hasValidEtablissement(resource.data) && (
+        isAdmin() || resource.data.etablissementId == getEtablissementId()
+      );
+    }
+
+    // Enforce that created and updated documents MUST be scoped by a valid etablissementId
+    function writeBelongsToSameEtablissement() {
+      return hasValidEtablissement(request.resource.data) && (
+        isAdmin() || request.resource.data.etablissementId == getEtablissementId()
+      );
+    }
+
+    // Users collection: user can manage own document without privilege escalation, admin can manage all
     match /users/{userId} {
       allow read: if isAuthenticated();
-      allow create: if isAuthenticated();
-      allow update: if isAuthenticated() && (request.auth.uid == userId || (isAdmin() && request.auth.uid != userId));
+      allow create: if isAuthenticated() && (
+        isAdmin() ||
+        (request.auth.uid == userId && (
+          !('role' in request.resource.data) || request.resource.data.role != 'admin'
+        ))
+      );
+      allow update: if isAuthenticated() && (
+        isAdmin() ||
+        (request.auth.uid == userId && (
+          !('role' in request.resource.data) ||
+          request.resource.data.role == resource.data.role ||
+          (resource.data.role != 'admin' && request.resource.data.role != 'admin')
+        ))
+      );
       allow delete: if isAdmin() && request.auth.uid != userId;
     }
 
-    // Audit logs: Admin read, authenticated create, immutable
+    // Audit logs: Read by Admin only, Append-only creation by authenticated users, never deleted or modified
     match /audit_log/{docId} {
       allow read: if isAdmin();
       allow create: if isAuthenticated();
       allow update, delete: if false;
     }
 
-    // Eleves: Authenticated read, Admin write
+    // Eleves: Authenticated read in same etablissement, Admin or Parent updating linked child
     match /eleves/{docId} {
-      allow read: if isAuthenticated();
-      allow write: if isAdmin();
+      allow read: if isAuthenticated() && belongsToSameEtablissement();
+      allow create: if isAdmin() && writeBelongsToSameEtablissement();
+      allow update: if writeBelongsToSameEtablissement() && (isAdmin() || (isAuthenticated() && (isParentOfEleve(docId) || isParentOfEleve(request.resource.data.id))));
+      allow delete: if isAdmin();
     }
 
-    // Paiements: Authenticated read, Admin write
+    // Paiements: STRICT FINANCIAL DOCUMENTS - Teachers have NO read access! Parents cannot alter paye/status directly.
     match /paiements/{docId} {
-      allow read: if isAuthenticated();
-      allow write: if isAdmin();
+      allow read: if belongsToSameEtablissement() && (
+        isAdmin() || (
+          isAuthenticated() && (
+            (resource.data.parentEmail == request.auth.token.email) ||
+            (resource.data.parentUid == request.auth.uid) ||
+            isParentOfEleve(resource.data.eleveId)
+          )
+        )
+      );
+      // Only Admin or verified server-side Cloud Function can mutate payment records
+      allow create, update, delete: if isAdmin() && writeBelongsToSameEtablissement();
     }
 
-    // Notes: Authenticated read, Admin/Prof write
+    // Paiement requests: Parents initiate transaction intents securely without modifying balances
+    match /paiement_requests/{requestId} {
+      allow read: if isAuthenticated() && belongsToSameEtablissement() && (
+        isAdmin() ||
+        resource.data.parentUid == request.auth.uid ||
+        isParentOfEleve(resource.data.eleveId)
+      );
+      allow create: if isAuthenticated() && writeBelongsToSameEtablissement() && (
+        request.resource.data.parentUid == request.auth.uid &&
+        request.resource.data.status == 'pending'
+      );
+      allow update, delete: if isAdmin();
+    }
+
+    // Notes: Multi-tenant read, Admin/Prof write
     match /notes/{docId} {
-      allow read: if isAuthenticated();
-      allow write: if isProf();
+      allow read: if isAuthenticated() && belongsToSameEtablissement();
+      allow write: if isProf() && writeBelongsToSameEtablissement();
     }
 
-    // Absences: Authenticated read, Admin/Prof write
+    // Absences: Multi-tenant read, Admin/Prof write
     match /absences/{docId} {
-      allow read: if isAuthenticated();
-      allow write: if isProf();
+      allow read: if isAuthenticated() && belongsToSameEtablissement();
+      allow write: if isProf() && writeBelongsToSameEtablissement();
     }
 
-    // Annonces: Authenticated read, Admin/Prof write
+    // Annonces: Multi-tenant read, Admin/Prof write
     match /annonces/{docId} {
-      allow read: if isAuthenticated();
-      allow write: if isProf();
+      allow read: if isAuthenticated() && belongsToSameEtablissement();
+      allow write: if isProf() && writeBelongsToSameEtablissement();
     }
 
-    // Cahier_texte: Authenticated read, Admin/Prof write
+    // Cahier_texte: Multi-tenant read, Admin/Prof write
     match /cahier_texte/{docId} {
-      allow read: if isAuthenticated();
-      allow write: if isProf();
+      allow read: if isAuthenticated() && belongsToSameEtablissement();
+      allow write: if isProf() && writeBelongsToSameEtablissement();
     }
 
-    // Notifications: Authenticated read & write
+    // Notifications: Multi-tenant aware read & write
     match /notifications/{docId} {
-      allow read: if isAuthenticated();
-      allow write: if isAuthenticated();
+      allow read: if isAuthenticated() && (
+        isAdmin() || !('etablissementId' in resource.data) || resource.data.etablissementId == getEtablissementId()
+      );
+      allow write: if isAuthenticated() && (
+        isAdmin() || !('etablissementId' in request.resource.data) || request.resource.data.etablissementId == getEtablissementId()
+      );
     }
 
     // SMS_queue: Authenticated read & write
@@ -98,31 +181,34 @@ service cloud.firestore {
       allow write: if isAuthenticated();
     }
 
-    // Messages: Authenticated read & write
+    // Messages: Authenticated read & write in establishment
     match /messages/{docId} {
-      allow read: if isAuthenticated();
-      allow write: if isAuthenticated();
+      allow read: if isAuthenticated() && belongsToSameEtablissement();
+      allow write: if isAuthenticated() && writeBelongsToSameEtablissement();
     }
 
-    // Schedules (Emploi du temps): Authenticated read, Admin/Prof write
+    // Schedules (Emploi du temps): Multi-tenant read, Admin/Prof write
     match /schedules/{docId} {
-      allow read: if isAuthenticated();
-      allow write: if isProf();
+      allow read: if isAuthenticated() && belongsToSameEtablissement();
+      allow write: if isProf() && writeBelongsToSameEtablissement();
     }
 
-    // Observations: Authenticated read, Admin/Prof write
+    // Observations: Multi-tenant read, Admin/Prof write
     match /observations/{docId} {
-      allow read: if isAuthenticated();
-      allow write: if isProf();
+      allow read: if isAuthenticated() && belongsToSameEtablissement();
+      allow write: if isProf() && writeBelongsToSameEtablissement();
     }
 
-    // Classes collection: Authenticated read, Admin write
+    // Classes collection: Multi-tenant read, Admin write
     match /classes/{docId} {
-      allow read: if isAuthenticated();
-      allow write: if isAdmin();
+      allow read: if isAuthenticated() && belongsToSameEtablissement();
+      allow write: if isAdmin() && writeBelongsToSameEtablissement();
+    }
+
+    // Examens & Épreuves: Multi-tenant read, Admin/Prof write
+    match /examens/{docId} {
+      allow read: if isAuthenticated() && belongsToSameEtablissement();
+      allow write: if isProf() && writeBelongsToSameEtablissement();
     }
   }
 }
-
-
-

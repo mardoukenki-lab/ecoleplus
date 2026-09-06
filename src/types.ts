@@ -1,3 +1,14 @@
+export interface TeachingAssignment {
+  classe: string;
+  matiere: string;
+}
+
+export interface SubjectAssignment {
+  matiere: string;
+  profUid: string | null;
+  profNom: string | null;
+}
+
 export interface UserProfile {
   uid: string;
   nom: string;
@@ -10,7 +21,9 @@ export interface UserProfile {
   tel: string;
   matiere?: string;
   classe?: string;
+  enseignements?: TeachingAssignment[];
   etablissement?: string;
+  etablissementId?: string;
   enfants?: { nom: string; classe: string; matricule: string }[];
   createdAt: string;
 }
@@ -27,6 +40,7 @@ export interface Eleve {
   archivedAt?: string;
   archivedBy?: string;
   archiveRaison?: string;
+  etablissementId?: string;
   createdAt: string;
 }
 
@@ -57,6 +71,7 @@ export interface Note {
   devoir2: number | null;
   compo: number | null;
   trimestre: string;
+  etablissementId?: string;
   createdAt: string;
   updatedAt: string;
 }
@@ -71,6 +86,7 @@ export interface Absence {
   date: string;
   heure: string;
   statut: 'absent' | 'present' | 'retard' | 'justifie';
+  etablissementId?: string;
   createdAt: string;
 }
 
@@ -81,6 +97,7 @@ export interface CahierTexte {
   cours: string;
   devoirs?: string;
   profNom: string;
+  etablissementId?: string;
   createdAt: string;
 }
 
@@ -119,6 +136,27 @@ export interface Paiement {
   recuNo?: string;
   historique: PaiementHistorique[];
   tranches?: Tranche[];
+  etablissementId?: string;
+}
+
+export interface PaiementRequest {
+  id: string;
+  eleveId: string;
+  eleveNom: string;
+  classe: string;
+  parentUid: string;
+  parentEmail: string;
+  trancheId?: string;
+  trancheNom?: string;
+  montant: number;
+  provider: 'wave' | 'orange' | 'mtn' | 'moov' | 'card';
+  phoneNumber: string;
+  status: 'pending' | 'completed' | 'failed';
+  transactionRef: string;
+  gatewayTxId?: string;
+  createdAt: string;
+  completedAt?: string;
+  etablissementId?: string;
 }
 
 export interface Annonce {
@@ -184,4 +222,24 @@ export interface Observation {
   description: string;
   date: string;
   createdAt: string;
+}
+
+export interface Examen {
+  id: string;
+  titre: string;
+  type: 'composition' | 'examen_blanc' | 'devoir_surveille' | 'bepc' | 'bac' | 'autre';
+  classes: string[]; // e.g. ['6e A', '6e B'] or ['Toutes']
+  matiere?: string;
+  dateDebut: string; // YYYY-MM-DD
+  dateFin?: string; // YYYY-MM-DD (optionnel si sur plusieurs jours)
+  heureDebut?: string; // e.g. "08:00"
+  heureFin?: string; // e.g. "12:00"
+  salle?: string;
+  coefficient?: number;
+  consignes?: string;
+  trimestre?: 'Trimestre 1' | 'Trimestre 2' | 'Trimestre 3' | 'Semestre 1' | 'Semestre 2' | 'Annuel';
+  publie: boolean;
+  auteurNom?: string;
+  createdAt: string;
+  updatedAt?: string;
 }

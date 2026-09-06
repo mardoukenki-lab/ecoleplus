@@ -39,6 +39,10 @@
           "type": "string",
           "description": "School name."
         },
+        "etablissementId": {
+          "type": "string",
+          "description": "Multi-tenant establishment identifier scoping this user."
+        },
         "enfants": {
           "type": "array",
           "description": "List of associated children (for parents only)."
@@ -59,6 +63,10 @@
         "id": {
           "type": "string",
           "description": "Unique identifier of the student."
+        },
+        "etablissementId": {
+          "type": "string",
+          "description": "Multi-tenant establishment identifier scoping this student."
         },
         "nom": {
           "type": "string",
@@ -96,6 +104,10 @@
         "id": {
           "type": "string",
           "description": "Unique note identifier."
+        },
+        "etablissementId": {
+          "type": "string",
+          "description": "Multi-tenant establishment identifier scoping this grade."
         },
         "eleveId": {
           "type": "string",
@@ -151,6 +163,10 @@
           "type": "string",
           "description": "Unique identifier."
         },
+        "etablissementId": {
+          "type": "string",
+          "description": "Multi-tenant establishment identifier scoping this attendance record."
+        },
         "eleveId": {
           "type": "string",
           "description": "Student reference."
@@ -201,6 +217,10 @@
           "type": "string",
           "description": "Entry identifier."
         },
+        "etablissementId": {
+          "type": "string",
+          "description": "Multi-tenant establishment identifier scoping this journal entry."
+        },
         "classe": {
           "type": "string",
           "description": "Target class."
@@ -237,6 +257,10 @@
         "id": {
           "type": "string",
           "description": "Student ID."
+        },
+        "etablissementId": {
+          "type": "string",
+          "description": "Multi-tenant establishment identifier scoping this tuition record."
         },
         "eleveId": {
           "type": "string",
@@ -281,6 +305,10 @@
         "id": {
           "type": "string",
           "description": "Announcement identifier."
+        },
+        "etablissementId": {
+          "type": "string",
+          "description": "Multi-tenant establishment identifier scoping this announcement."
         },
         "destinataire": {
           "type": "string",
@@ -350,6 +378,80 @@
         }
       },
       "required": ["id", "userUid", "icon", "bg", "text", "time", "unread", "createdAt"]
+    },
+    "examens": {
+      "title": "Examen",
+      "description": "Represents an exam or test date scheduled on the school calendar.",
+      "type": "object",
+      "properties": {
+        "id": {
+          "type": "string",
+          "description": "Unique exam identifier."
+        },
+        "etablissementId": {
+          "type": "string",
+          "description": "Multi-tenant establishment identifier scoping this exam schedule."
+        },
+        "titre": {
+          "type": "string",
+          "description": "Exam title or description."
+        },
+        "type": {
+          "type": "string",
+          "enum": ["composition", "examen_blanc", "devoir_surveille", "bepc", "bac", "autre"],
+          "description": "Category of the evaluation/exam."
+        },
+        "classes": {
+          "type": "array",
+          "description": "Target classes (e.g. ['6e A', '6e B'] or ['Toutes'])."
+        },
+        "matiere": {
+          "type": "string",
+          "description": "Subject if specific."
+        },
+        "dateDebut": {
+          "type": "string",
+          "description": "Start date (YYYY-MM-DD)."
+        },
+        "dateFin": {
+          "type": "string",
+          "description": "End date (YYYY-MM-DD)."
+        },
+        "heureDebut": {
+          "type": "string",
+          "description": "Start time (e.g. 08:00)."
+        },
+        "heureFin": {
+          "type": "string",
+          "description": "End time (e.g. 12:00)."
+        },
+        "salle": {
+          "type": "string",
+          "description": "Assigned room or hall."
+        },
+        "coefficient": {
+          "type": "number",
+          "description": "Coefficient of the exam."
+        },
+        "consignes": {
+          "type": "string",
+          "description": "Special instructions or authorized equipment."
+        },
+        "trimestre": {
+          "type": "string",
+          "description": "Academic period."
+        },
+        "publie": {
+          "type": "boolean",
+          "description": "Whether the exam is published for teachers and parents to view."
+        },
+        "createdAt": {
+          "type": "string",
+          "format": "date-time",
+          "description": "Creation timestamp."
+        }
+      },
+      "required": ["id", "titre", "type", "classes", "dateDebut", "publie", "createdAt"]
     }
   },
   "firestore": {
@@ -384,6 +486,10 @@
     "notifications/{notifId}": {
       "schema": { "$ref": "notifications" },
       "description": "Real-time list of notifications."
+    },
+    "examens/{examenId}": {
+      "schema": { "$ref": "examens" },
+      "description": "School examination and test dates calendar."
     }
   }
 }

@@ -1,8 +1,9 @@
 import React, { useState, useEffect } from 'react';
 import { db } from '../lib/firebase';
 import { collection, onSnapshot, doc, setDoc, updateDoc, deleteDoc, getDocs, query, where, writeBatch } from 'firebase/firestore';
-import { Eleve, UserProfile } from '../types';
-import { Users, Plus, ChevronRight, User, Search, GraduationCap, Trash2, Edit3, X, Save } from 'lucide-react';
+import { Eleve, UserProfile, SubjectAssignment } from '../types';
+import { Users, Plus, ChevronRight, User, Search, GraduationCap, Trash2, Edit3, X, Save, BookOpen, CheckCircle2, UserPlus, FileText } from 'lucide-react';
+import BulletinPrintModal from './BulletinPrintModal';
 
 interface ClassesViewProps {
   currentUser: UserProfile;
@@ -16,20 +17,38 @@ interface FirestoreClassDoc {
   scolarite?: number;
   titulaireUid?: string;
   titulaireNom?: string;
+  assignments?: SubjectAssignment[];
   createdAt?: string;
 }
+
+const DEFAULT_MATIERES = [
+  'Mathématiques',
+  'Français',
+  'Espagnol',
+  'Philosophie',
+  'Anglais',
+  'Histoire-Géographie',
+  'SVT',
+  'Physique-Chimie',
+  'EPS',
+  'Allemand',
+  'Informatique'
+];
 
 export default function ClassesView({ currentUser, studentsList, showToast }: ClassesViewProps) {
   const [teachers, setTeachers] = useState<UserProfile[]>([]);
   const [customClasses, setCustomClasses] = useState<FirestoreClassDoc[]>([]);
   const [selectedClass, setSelectedClass] = useState<string | null>(null);
+  const [selectedDetailTab, setSelectedDetailTab] = useState<'profs' | 'eleves'>('profs');
   const [newClassName, setNewClassName] = useState('');
   const [newClassScolarite, setNewClassScolarite] = useState('');
   const [isAddingClass, setIsAddingClass] = useState(false);
   const [searchStudent, setSearchStudent] = useState('');
   const [deletedClasses, setDeletedClasses] = useState<Set<string>>(new Set());
+  const [newCustomMatiereInput, setNewCustomMatiereInput] = useState('');
 
   // Class Edit Modal state
+  const [selectedStudentForBulletin, setSelectedStudentForBulletin] = useState<Eleve | null>(null);
   const [editingClass, setEditingClass] = useState<string | null>(null);
   const [editClassName, setEditClassName] = useState('');
   const [editClassScolarite, setEditClassScolarite] = useState('');
@@ -41,7 +60,15 @@ export default function ClassesView({ currentUser, studentsList, showToast }: Cl
       const list: FirestoreClassDoc[] = [];
       snap.forEach((d) => {
         const data = d.data();
-        list.push({ id: d.id, name: data.name, scolarite: data.scolarite, titulaireUid: data.titulaireUid, titulaireNom: data.titulaireNom, createdAt: data.createdAt });
+        list.push({
+          id: d.id,
+          name: data.name,
+          scolarite: data.scolarite,
+          titulaireUid: data.titulaireUid,
+          titulaireNom: data.titulaireNom,
+          assignments: data.assignments || [],
+          createdAt: data.createdAt
+        });
       });
       setCustomClasses(list);
     }, (err) => console.warn('Classes listener error:', err));
@@ -291,6 +318,110 @@ export default function ClassesView({ currentUser, studentsList, showToast }: Cl
     }
   };
 
+  const handleAssignTeacherToSubject = async (className: string, matiere: string, profUid: string) => {
+    const classDocId = className.toLowerCase().replace(/[\s/]+/g, '_');
+    const existingClassDoc = customClasses.find((c) => c.name.trim().toLowerCase() === className.trim().toLowerCase());
+    let currentAssignments = existingClassDoc?.assignments ? [...existingClassDoc.assignments] : [];
+
+    const prevAssignment = currentAssignments.find((a) => a.matiere === matiere);
+    currentAssignments = currentAssignments.filter((a) => a.matiere !== matiere);
+
+    let assignedProfName: string | null = null;
+
+    if (profUid) {
+      const selectedProf = teachers.find((t) => t.uid === profUid);
+      if (selectedProf) {
+        assignedProfName = selectedProf.nom;
+        currentAssignments.push({
+          matiere,
+          profUid: selectedProf.uid,
+          profNom: selectedProf.nom
+        });
+
+        const profEnseignements = selectedProf.enseignements ? [...selectedProf.enseignements] : [];
+        if (!profEnseignements.some((e) => e.classe === className && e.matiere === matiere)) {
+          profEnseignements.push({ classe: className, matiere });
+          try {
+            await updateDoc(doc(db, 'users', selectedProf.uid), {
+              enseignements: profEnseignements,
+              updatedAt: new Date().toISOString()
+            });
+          } catch (e) {
+            console.warn('Sync prof profile notice:', e);
+          }
+        }
+      }
+    }
+
+    if (prevAssignment && prevAssignment.profUid && prevAssignment.profUid !== profUid) {
+      const oldProf = teachers.find((t) => t.uid === prevAssignment.profUid);
+      if (oldProf && oldProf.enseignements) {
+        const updatedEnseignements = oldProf.enseignements.filter(
+          (e) => !(e.classe === className && e.matiere === matiere)
+        );
+        try {
+          await updateDoc(doc(db, 'users', oldProf.uid), {
+            enseignements: updatedEnseignements,
+            updatedAt: new Date().toISOString()
+          });
+        } catch (e) {
+          console.warn('Unsync old prof profile notice:', e);
+        }
+      }
+    }
+
+    try {
+      await setDoc(doc(db, 'classes', classDocId), {
+        name: className,
+        assignments: currentAssignments,
+        updatedAt: new Date().toISOString()
+      }, { merge: true });
+
+      if (assignedProfName) {
+        showToast(`✅ Prof. ${assignedProfName} assigné pour ${matiere} en ${className}`);
+      } else {
+        showToast(`ℹ️ Affectation retirée pour ${matiere} en ${className}`);
+      }
+    } catch (err) {
+      console.error('Error assigning teacher:', err);
+      showToast('❌ Échec de la mise à jour de l\'affectation.');
+    }
+  };
+
+  const handleAddCustomSubjectToClass = async (className: string) => {
+    if (!newCustomMatiereInput.trim()) return;
+    const matiereClean = newCustomMatiereInput.trim();
+
+    const classDocId = className.toLowerCase().replace(/[\s/]+/g, '_');
+    const existingClassDoc = customClasses.find((c) => c.name.trim().toLowerCase() === className.trim().toLowerCase());
+    const currentAssignments = existingClassDoc?.assignments ? [...existingClassDoc.assignments] : [];
+
+    if (currentAssignments.some((a) => a.matiere.toLowerCase() === matiereClean.toLowerCase())) {
+      showToast('⚠️ Cette matière existe déjà dans le programme.');
+      return;
+    }
+
+    currentAssignments.push({
+      matiere: matiereClean,
+      profUid: null,
+      profNom: null
+    });
+
+    try {
+      await setDoc(doc(db, 'classes', classDocId), {
+        name: className,
+        assignments: currentAssignments,
+        updatedAt: new Date().toISOString()
+      }, { merge: true });
+
+      setNewCustomMatiereInput('');
+      showToast(`📚 Matière "${matiereClean}" ajoutée au programme de la classe ${className}`);
+    } catch (err) {
+      console.error('Error adding custom subject:', err);
+      showToast('❌ Échec de l\'ajout de la matière.');
+    }
+  };
+
   const classStudents = selectedClass
     ? studentsList.filter((s) => s.classe === selectedClass && s.nom.toLowerCase().includes(searchStudent.toLowerCase()))
     : [];
@@ -456,89 +587,249 @@ export default function ClassesView({ currentUser, studentsList, showToast }: Cl
       </div>
 
       {/* Selected Class Details Panel */}
-      {selectedClass && (
-        <div className="bg-white rounded-[24px] border border-[#e0e0e0] shadow-sm p-6 space-y-4 animate-in fade-in duration-200">
-          <div className="flex justify-between items-center flex-wrap gap-3 pb-3 border-b border-[#e0e0e0]">
-            <div>
-              <span className="text-[9px] font-bold uppercase tracking-widest text-[#9e9e9e]">Liste des élèves inscrits</span>
-              <h3 className="font-sans font-bold text-lg text-[#1a1a1a]">Classe de {selectedClass}</h3>
+      {selectedClass && (() => {
+        const selectedClassDoc = customClasses.find(c => c.name.trim().toLowerCase() === selectedClass.trim().toLowerCase());
+        const classAssignments = selectedClassDoc?.assignments || [];
+        const allMatieresInClass = Array.from(new Set([...DEFAULT_MATIERES, ...classAssignments.map(a => a.matiere)]));
+        const assignedProfsCount = classAssignments.filter(a => Boolean(a.profUid)).length;
+
+        return (
+          <div className="bg-white rounded-[24px] border border-[#e0e0e0] shadow-sm p-6 space-y-5 animate-in fade-in duration-200">
+            {/* Header and Tab Selector */}
+            <div className="flex justify-between items-center flex-wrap gap-4 pb-4 border-b border-[#e0e0e0]">
+              <div>
+                <span className="text-[9px] font-bold uppercase tracking-widest text-[#9e9e9e]">Programme & Effectif</span>
+                <h3 className="font-sans font-bold text-xl text-[#1a1a1a]">Classe de {selectedClass}</h3>
+              </div>
+
+              <div className="flex items-center gap-2 bg-[#f5f5f5] p-1 rounded-xl border border-[#e0e0e0]">
+                <button
+                  onClick={() => setSelectedDetailTab('profs')}
+                  className={`px-3.5 py-1.5 rounded-lg text-xs font-bold transition-all cursor-pointer flex items-center gap-1.5 ${
+                    selectedDetailTab === 'profs'
+                      ? 'bg-[#1a1a1a] text-white shadow-2xs'
+                      : 'text-[#9e9e9e] hover:text-[#1a1a1a]'
+                  }`}
+                >
+                  <BookOpen size={14} />
+                  <span>👨‍🏫 Enseignants & Matières</span>
+                  <span className={`text-[10px] px-1.5 py-0.2 rounded-full font-bold ${
+                    selectedDetailTab === 'profs' ? 'bg-white/20 text-white' : 'bg-gray-200 text-gray-700'
+                  }`}>
+                    {assignedProfsCount}
+                  </span>
+                </button>
+
+                <button
+                  onClick={() => setSelectedDetailTab('eleves')}
+                  className={`px-3.5 py-1.5 rounded-lg text-xs font-bold transition-all cursor-pointer flex items-center gap-1.5 ${
+                    selectedDetailTab === 'eleves'
+                      ? 'bg-[#1a1a1a] text-white shadow-2xs'
+                      : 'text-[#9e9e9e] hover:text-[#1a1a1a]'
+                  }`}
+                >
+                  <Users size={14} />
+                  <span>👥 Élèves Inscrits</span>
+                  <span className={`text-[10px] px-1.5 py-0.2 rounded-full font-bold ${
+                    selectedDetailTab === 'eleves' ? 'bg-white/20 text-white' : 'bg-gray-200 text-gray-700'
+                  }`}>
+                    {classStudents.length}
+                  </span>
+                </button>
+              </div>
             </div>
 
-            <div className="relative">
-              <Search size={14} className="absolute left-3 top-2.5 text-[#9e9e9e]" />
-              <input
-                type="text"
-                placeholder="Rechercher un élève..."
-                value={searchStudent}
-                onChange={(e) => setSearchStudent(e.target.value)}
-                className="pl-8 pr-3 py-1.5 border border-[#e0e0e0] rounded-xl text-xs bg-white text-[#1a1a1a]"
-              />
-            </div>
-          </div>
+            {/* TAB 1: TEACHERS & SUBJECTS ASSIGNMENT */}
+            {selectedDetailTab === 'profs' && (
+              <div className="space-y-4">
+                <div className="bg-amber-50/60 p-3.5 rounded-2xl border border-amber-200 text-xs text-amber-900 flex justify-between items-center flex-wrap gap-2">
+                  <div className="flex items-center gap-2">
+                    <GraduationCap size={18} className="text-amber-700" />
+                    <div>
+                      <strong className="font-bold">Affectation des Enseignants par Matière</strong>
+                      <p className="text-[11px] text-amber-800">
+                        Exemple : <strong>6eA Espagnol → Okechi Okafor</strong>, <strong>Philo → Kra Daya</strong>. L'enseignant accèdera directement aux élèves de cette classe.
+                      </p>
+                    </div>
+                  </div>
+                  <span className="bg-white px-2.5 py-1 rounded-lg text-[10px] font-bold text-amber-900 border border-amber-300">
+                    {assignedProfsCount} / {allMatieresInClass.length} matière(s) attribuée(s)
+                  </span>
+                </div>
 
-          <div className="overflow-x-auto">
-            <table className="w-full text-left border-collapse">
-              <thead>
-                <tr className="border-b border-[#e0e0e0] text-[10px] font-bold uppercase tracking-widest text-[#9e9e9e] bg-[#f5f5f5]/30">
-                  <th className="py-2.5 px-4">Élève</th>
-                  <th className="py-2.5 px-4">Matricule / Code</th>
-                  <th className="py-2.5 px-4">Parent Associé</th>
-                  <th className="py-2.5 px-4">Statut Compte Parent</th>
-                  {currentUser.role === 'admin' && <th className="py-2.5 px-4 text-right">Action</th>}
-                </tr>
-              </thead>
-              <tbody className="divide-y divide-[#e0e0e0]/60 text-xs">
-                {classStudents.map((s) => (
-                  <tr key={s.id} className="hover:bg-[#f5f5f5]/20">
-                    <td className="py-3 px-4 font-bold text-[#1a1a1a]">{s.nom}</td>
-                    <td className="py-3 px-4 text-[#9e9e9e] font-mono font-semibold">{s.code}</td>
-                    <td className="py-3 px-4 text-[#1a1a1a] font-medium">{s.parentNom || 'Non associé'}</td>
-                    <td className="py-3 px-4">
-                      {s.parentUid ? (
-                        <span className="bg-emerald-50 text-emerald-700 text-[9px] font-bold px-2.5 py-0.5 rounded-lg uppercase">
-                          ✓ Compte Lié
-                        </span>
-                      ) : (
-                        <span className="bg-amber-50 text-amber-700 text-[9px] font-bold px-2.5 py-0.5 rounded-lg uppercase">
-                          En attente d'inscription
-                        </span>
-                      )}
-                    </td>
-                    {currentUser.role === 'admin' && (
-                      <td className="py-3 px-4 text-right">
-                        <div className="flex items-center justify-end gap-1.5">
-                          <button
-                            onClick={() => handleChangeStudentClass(s)}
-                            title="Changer de classe"
-                            className="px-2 py-1 text-[10px] font-bold bg-[#f5f5f5] hover:bg-[#1a1a1a] hover:text-white border border-[#e0e0e0] text-[#1a1a1a] rounded-lg transition-all cursor-pointer"
-                          >
-                            ✏️ Changer classe
-                          </button>
-                          <button
-                            onClick={() => handleDeleteStudent(s)}
-                            title="Supprimer l'élève"
-                            className="p-1.5 text-red-500 hover:text-red-700 hover:bg-red-50 rounded-lg transition-colors cursor-pointer"
-                          >
-                            <Trash2 size={15} />
-                          </button>
-                        </div>
-                      </td>
-                    )}
-                  </tr>
-                ))}
+                <div className="overflow-x-auto border border-[#e0e0e0] rounded-2xl">
+                  <table className="w-full text-left border-collapse">
+                    <thead>
+                      <tr className="border-b border-[#e0e0e0] text-[10px] font-bold uppercase tracking-widest text-[#9e9e9e] bg-[#f5f5f5]/60">
+                        <th className="py-3 px-4">Matière au Programme</th>
+                        <th className="py-3 px-4">Enseignant Assigné</th>
+                        <th className="py-3 px-4 text-right">Attribuer / Modifier le Professeur</th>
+                      </tr>
+                    </thead>
+                    <tbody className="divide-y divide-[#e0e0e0]/60 text-xs">
+                      {allMatieresInClass.map((mat) => {
+                        const currentAssign = classAssignments.find(a => a.matiere === mat);
+                        const isAssigned = Boolean(currentAssign?.profUid);
 
-                {classStudents.length === 0 && (
-                  <tr>
-                    <td colSpan={currentUser.role === 'admin' ? 5 : 4} className="py-8 text-center text-xs text-[#9e9e9e]">
-                      Aucun élève inscrit dans la classe de {selectedClass} pour l'instant.
-                    </td>
-                  </tr>
+                        return (
+                          <tr key={mat} className="hover:bg-[#f5f5f5]/30">
+                            <td className="py-3 px-4 font-bold text-[#1a1a1a] flex items-center gap-2">
+                              <span className="w-2 h-2 rounded-full bg-[#1a1a1a]"></span>
+                              {mat}
+                            </td>
+                            <td className="py-3 px-4">
+                              {isAssigned ? (
+                                <span className="bg-emerald-50 text-emerald-800 text-[11px] font-bold px-2.5 py-1 rounded-xl border border-emerald-200 flex items-center gap-1.5 w-fit">
+                                  <CheckCircle2 size={13} className="text-emerald-600" />
+                                  Prof. {currentAssign?.profNom}
+                                </span>
+                              ) : (
+                                <span className="bg-gray-100 text-gray-500 text-[10px] font-bold px-2.5 py-0.5 rounded-lg uppercase">
+                                  Non attribué
+                                </span>
+                              )}
+                            </td>
+                            <td className="py-3 px-4 text-right">
+                              {currentUser.role === 'admin' ? (
+                                <select
+                                  value={currentAssign?.profUid || ''}
+                                  onChange={(e) => handleAssignTeacherToSubject(selectedClass, mat, e.target.value)}
+                                  className="px-3 py-1.5 border border-[#e0e0e0] rounded-xl text-xs bg-white text-[#1a1a1a] font-semibold focus:outline-none focus:border-[#1a1a1a] cursor-pointer"
+                                >
+                                  <option value="">-- Choisir un enseignant --</option>
+                                  {teachers.map((t) => (
+                                    <option key={t.uid} value={t.uid}>
+                                      👨‍🏫 {t.nom} ({t.matiere || 'Matières générales'})
+                                    </option>
+                                  ))}
+                                </select>
+                              ) : (
+                                <span className="text-xs text-[#9e9e9e]">{currentAssign?.profNom || '—'}</span>
+                              )}
+                            </td>
+                          </tr>
+                        );
+                      })}
+                    </tbody>
+                  </table>
+                </div>
+
+                {/* Add Custom Subject Form */}
+                {currentUser.role === 'admin' && (
+                  <div className="pt-2 flex items-center gap-3">
+                    <input
+                      type="text"
+                      placeholder="Ajouter une matière spécifique (ex: Arts Plastiques, Économie...)"
+                      value={newCustomMatiereInput}
+                      onChange={(e) => setNewCustomMatiereInput(e.target.value)}
+                      className="px-3.5 py-2 border border-[#e0e0e0] rounded-xl text-xs bg-white text-[#1a1a1a] max-w-sm w-full"
+                    />
+                    <button
+                      type="button"
+                      onClick={() => handleAddCustomSubjectToClass(selectedClass)}
+                      className="bg-[#1a1a1a] hover:bg-black text-white px-4 py-2 rounded-xl text-xs font-bold cursor-pointer flex items-center gap-1.5 uppercase tracking-wider"
+                    >
+                      <Plus size={14} /> Ajouter au programme
+                    </button>
+                  </div>
                 )}
-              </tbody>
-            </table>
+              </div>
+            )}
+
+            {/* TAB 2: ENROLLED STUDENTS */}
+            {selectedDetailTab === 'eleves' && (
+              <div className="space-y-4">
+                <div className="flex justify-between items-center flex-wrap gap-3">
+                  <p className="text-xs text-[#9e9e9e] font-medium">
+                    Liste des élèves régulièrement inscrits en classe de <strong>{selectedClass}</strong>.
+                  </p>
+                  <div className="relative">
+                    <Search size={14} className="absolute left-3 top-2.5 text-[#9e9e9e]" />
+                    <input
+                      type="text"
+                      placeholder="Rechercher un élève..."
+                      value={searchStudent}
+                      onChange={(e) => setSearchStudent(e.target.value)}
+                      className="pl-8 pr-3 py-1.5 border border-[#e0e0e0] rounded-xl text-xs bg-white text-[#1a1a1a]"
+                    />
+                  </div>
+                </div>
+
+                <div className="overflow-x-auto border border-[#e0e0e0] rounded-2xl">
+                  <table className="w-full text-left border-collapse">
+                    <thead>
+                      <tr className="border-b border-[#e0e0e0] text-[10px] font-bold uppercase tracking-widest text-[#9e9e9e] bg-[#f5f5f5]/60">
+                        <th className="py-2.5 px-4">Élève</th>
+                        <th className="py-2.5 px-4">Matricule / Code</th>
+                        <th className="py-2.5 px-4">Parent Associé</th>
+                        <th className="py-2.5 px-4">Statut Compte Parent</th>
+                        <th className="py-2.5 px-4 text-right">Actions & Bulletin</th>
+                      </tr>
+                    </thead>
+                    <tbody className="divide-y divide-[#e0e0e0]/60 text-xs">
+                      {classStudents.map((s) => (
+                        <tr key={s.id} className="hover:bg-[#f5f5f5]/20">
+                          <td className="py-3 px-4 font-bold text-[#1a1a1a]">{s.nom}</td>
+                          <td className="py-3 px-4 text-[#9e9e9e] font-mono font-semibold">{s.code}</td>
+                          <td className="py-3 px-4 text-[#1a1a1a] font-medium">{s.parentNom || 'Non associé'}</td>
+                          <td className="py-3 px-4">
+                            {s.parentUid ? (
+                              <span className="bg-emerald-50 text-emerald-700 text-[9px] font-bold px-2.5 py-0.5 rounded-lg uppercase">
+                                ✓ Compte Lié
+                              </span>
+                            ) : (
+                              <span className="bg-amber-50 text-amber-700 text-[9px] font-bold px-2.5 py-0.5 rounded-lg uppercase">
+                                En attente d'inscription
+                              </span>
+                            )}
+                          </td>
+                          <td className="py-3 px-4 text-right">
+                            <div className="flex items-center justify-end gap-1.5">
+                              <button
+                                onClick={() => setSelectedStudentForBulletin(s)}
+                                title="Générer la version imprimable du bulletin scolaire"
+                                className="px-2 py-1 text-[10px] font-bold bg-[#f5f5f5] hover:bg-[#1a1a1a] hover:text-white border border-[#e0e0e0] text-[#1a1a1a] rounded-lg transition-all cursor-pointer flex items-center gap-1 active:scale-95"
+                              >
+                                <FileText size={11} /> Bulletin PDF
+                              </button>
+                              {currentUser.role === 'admin' && (
+                                <>
+                                  <button
+                                    onClick={() => handleChangeStudentClass(s)}
+                                    title="Changer de classe"
+                                    className="px-2 py-1 text-[10px] font-bold bg-[#f5f5f5] hover:bg-[#1a1a1a] hover:text-white border border-[#e0e0e0] text-[#1a1a1a] rounded-lg transition-all cursor-pointer"
+                                  >
+                                    ✏️
+                                  </button>
+                                  <button
+                                    onClick={() => handleDeleteStudent(s)}
+                                    title="Supprimer l'élève"
+                                    className="p-1.5 text-red-500 hover:text-red-700 hover:bg-red-50 rounded-lg transition-colors cursor-pointer"
+                                  >
+                                    <Trash2 size={15} />
+                                  </button>
+                                </>
+                              )}
+                            </div>
+                          </td>
+                        </tr>
+                      ))}
+
+                      {classStudents.length === 0 && (
+                        <tr>
+                          <td colSpan={5} className="py-8 text-center text-xs text-[#9e9e9e]">
+                            Aucun élève inscrit dans la classe de {selectedClass} pour l'instant.
+                          </td>
+                        </tr>
+                      )}
+                    </tbody>
+                  </table>
+                </div>
+              </div>
+            )}
           </div>
-        </div>
-      )}
+        );
+      })()}
 
       {/* Edit Class Modal */}
       {editingClass && (
@@ -632,6 +923,16 @@ export default function ClassesView({ currentUser, studentsList, showToast }: Cl
             </form>
           </div>
         </div>
+      )}
+
+      {/* Printable Bulletin Modal */}
+      {selectedStudentForBulletin && (
+        <BulletinPrintModal
+          student={selectedStudentForBulletin}
+          allStudents={studentsList}
+          onClose={() => setSelectedStudentForBulletin(null)}
+          showToast={showToast}
+        />
       )}
     </div>
   );

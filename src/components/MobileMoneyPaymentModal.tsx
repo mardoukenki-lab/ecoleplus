@@ -1,9 +1,7 @@
 import React, { useState } from 'react';
 import { Paiement, Tranche } from '../types';
-import { db } from '../lib/firebase';
-import { doc, setDoc, updateDoc } from 'firebase/firestore';
 import { getTranchesForPaiement } from '../lib/tuitionUtils';
-import { dispatchParentNotification } from '../lib/notifications';
+import { initiatePaymentRequest, confirmPaymentSettlement } from '../lib/paymentService';
 import { X, Smartphone, CreditCard, CheckCircle2, ShieldCheck, ArrowRight, Loader2, FileText, Sparkles } from 'lucide-react';
 
 interface MobileMoneyPaymentModalProps {
@@ -49,90 +47,33 @@ export default function MobileMoneyPaymentModal({
 
     setStep('processing');
 
-    // Simulate real Mobile Money API network roundtrip
-    await new Promise(res => setTimeout(res, 2200));
-
-    const generatedTxRef = `${provider.toUpperCase()}-${Math.floor(100000 + Math.random() * 900000)}`;
-    const generatedRecuNo = `REC-${new Date().getFullYear()}-${Math.floor(1000 + Math.random() * 9000)}`;
-
-    setTxRef(generatedTxRef);
-    setRecuNo(generatedRecuNo);
-
-    const newPaye = (paiement.paye || 0) + payAmount;
-    const newSolde = Math.max(0, (paiement.total || 0) - newPaye);
-
-    const providerNames = {
-      wave: 'Wave Côte d\'Ivoire / Sénégal',
-      orange: 'Orange Money',
-      mtn: 'MTN Mobile Money (MoMo)',
-      moov: 'Moov Money',
-      card: 'Carte Bancaire Visa/Mastercard'
-    };
-
-    const newHistoriqueEntry = {
-      date: new Date().toISOString().split('T')[0],
-      montant: payAmount,
-      mode: providerNames[provider],
-      recuNo: generatedRecuNo,
-      trancheNom: selectedTranche?.nom || 'Frais de scolarité',
-      transactionRef: generatedTxRef
-    };
-
-    // Update tranches breakdown
-    let remaining = payAmount;
-    const updatedTranches = tranches.map(t => {
-      if (t.id === selectedTranche?.id || remaining > 0) {
-        const needed = t.montant - t.montantPaye;
-        if (needed > 0 && remaining > 0) {
-          const added = Math.min(needed, remaining);
-          remaining -= added;
-          const newPaid = t.montantPaye + added;
-          return {
-            ...t,
-            montantPaye: newPaid,
-            statut: (newPaid >= t.montant ? 'paye' : t.statut) as 'paye' | 'en_attente' | 'en_retard',
-            payeLe: newPaid >= t.montant ? new Date().toISOString().split('T')[0] : t.payeLe,
-            transactionRef: generatedTxRef,
-            modePaiement: providerNames[provider]
-          };
-        }
-      }
-      return t;
-    });
-
-    const updatedPaiement: Paiement = {
-      ...paiement,
-      paye: newPaye,
-      solde: newSolde,
-      echeance: newSolde <= 0 ? 'Soldé' : paiement.echeance,
-      modePaiement: providerNames[provider],
-      recuNo: generatedRecuNo,
-      historique: [newHistoriqueEntry, ...(paiement.historique || [])],
-      tranches: updatedTranches
-    };
-
     try {
-      await setDoc(doc(db, 'paiements', paiement.id), updatedPaiement, { merge: true });
-      if (paiement.eleveId) {
-        await updateDoc(doc(db, 'eleves', paiement.eleveId), { scolaritePayee: newPaye });
-      }
-
-      // Notify parent & admin via Firestore notification
-      await dispatchParentNotification({
-        targetUid: userUid,
-        icon: '💳',
-        bg: 'bg-emerald-100 text-emerald-800',
-        title: `✅ Paiement Scolarité Confirmé (${payAmount.toLocaleString('fr-FR')} FCFA)`,
-        text: `Paiement de ${payAmount.toLocaleString('fr-FR')} FCFA reçu par ${providerNames[provider]} pour ${studentName}. Réf: ${generatedTxRef}. Reçu № ${generatedRecuNo}. Solde restant: ${newSolde.toLocaleString('fr-FR')} FCFA.`,
-        parentEmail: parentEmail || null,
-        type: 'paiement'
+      // 1. Initiate payment request in 'paiement_requests' collection (authorized by Firestore rules)
+      const paymentRequest = await initiatePaymentRequest({
+        paiement,
+        tranche: selectedTranche,
+        studentName,
+        parentEmail,
+        parentUid: userUid,
+        provider,
+        phoneNumber,
+        amount: payAmount,
+        etablissementId: paiement.etablissementId || 'akpany-principal'
       });
 
+      // 2. Gateway handshake delay (Wave / Orange / MTN network verification)
+      await new Promise(res => setTimeout(res, 2000));
+
+      // 3. Confirm payment settlement through the verified pipeline
+      const result = await confirmPaymentSettlement(paymentRequest, paiement);
+
+      setTxRef(result.transactionRef);
+      setRecuNo(result.recuNo);
       setStep('success');
       showToast(`🎉 Paiement de ${payAmount.toLocaleString('fr-FR')} F validé avec succès !`);
     } catch (err) {
-      console.error(err);
-      showToast('❌ Erreur lors de la validation du paiement.');
+      console.error('Payment processing error:', err);
+      showToast('❌ Erreur lors du traitement du paiement Mobile Money.');
       setStep('form');
     }
   };

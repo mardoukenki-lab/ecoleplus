@@ -1,9 +1,9 @@
 import React, { useState, useEffect } from 'react';
 import { auth, db } from './lib/firebase';
-import { onAuthStateChanged, signOut } from 'firebase/auth';
+import { onAuthStateChanged, signOut, User } from 'firebase/auth';
 import { doc, getDoc, setDoc } from 'firebase/firestore';
 import { UserProfile } from './types';
-import LoginScreen, { ALLOWED_ADMIN_EMAILS, getAdminNom } from './components/LoginScreen';
+import LoginScreen, { getAdminNom } from './components/LoginScreen';
 import ProfRegisterScreen from './components/ProfRegisterScreen';
 import ParentRegisterScreen from './components/ParentRegisterScreen';
 import AdminView from './components/AdminView';
@@ -11,6 +11,9 @@ import ProfView from './components/ProfView';
 import ParentView from './components/ParentView';
 import PWAInstallPrompt from './components/PWAInstallPrompt';
 import { clearAllDatabaseData } from './lib/demoData';
+import { getLastSyncTime, clearOfflineCache } from './lib/offlineSync';
+import { WifiOff, Wifi } from 'lucide-react';
+import { MultiTenancyProvider } from './hooks/useMultiTenancy';
 
 interface Toast {
   id: number;
@@ -18,15 +21,30 @@ interface Toast {
 }
 
 export default function App() {
-  const [user, setUser] = useState<any | null>(null);
+  const [user, setUser] = useState<User | null>(null);
   const [profile, setProfile] = useState<UserProfile | null>(null);
   const [screen, setScreen] = useState<'login' | 'prof_reg' | 'parent_reg'>('login');
   const [toasts, setToasts] = useState<Toast[]>([]);
   const [loading, setLoading] = useState(true);
+  const [isOffline, setIsOffline] = useState(!navigator.onLine);
 
-  // App initialization
   useEffect(() => {
-    // Production mode: dashboard starts clean without auto-seeding or auto-clearing triggers
+    const handleOnline = () => {
+      setIsOffline(false);
+      showToast('🟢 Connexion Internet rétablie !');
+    };
+    const handleOffline = () => {
+      setIsOffline(true);
+      showToast('⚡ Mode Hors-Ligne activé : consultation des élèves & emplois du temps activée');
+    };
+
+    window.addEventListener('online', handleOnline);
+    window.addEventListener('offline', handleOffline);
+
+    return () => {
+      window.removeEventListener('online', handleOnline);
+      window.removeEventListener('offline', handleOffline);
+    };
   }, []);
 
   useEffect(() => {
@@ -49,22 +67,22 @@ export default function App() {
             }
           }
 
+          // Inspect Custom Claims on token
+          const tokenResult = await authUser.getIdTokenResult();
+          const hasAdminClaim = Boolean(tokenResult.claims && tokenResult.claims.admin === true);
+
           if (userDoc && userDoc.exists()) {
             const data = userDoc.data() as UserProfile;
-            const lowerEmail = authUser.email?.toLowerCase().trim() || '';
-            if (ALLOWED_ADMIN_EMAILS.includes(lowerEmail)) {
+            if (hasAdminClaim && data.role !== 'admin') {
               const adminProfile: UserProfile = {
                 ...data,
                 role: 'admin',
                 status: 'active',
-                nom: data.nom || getAdminNom(lowerEmail),
               };
-              if (data.role !== 'admin' || data.status !== 'active') {
-                try {
-                  await setDoc(doc(db, 'users', authUser.uid), adminProfile, { merge: true });
-                } catch (e) {
-                  console.warn('Could not update admin role in firestore:', e);
-                }
+              try {
+                await setDoc(doc(db, 'users', authUser.uid), adminProfile, { merge: true });
+              } catch (e) {
+                console.warn('Could not update admin role in firestore:', e);
               }
               setProfile(adminProfile);
             } else {
@@ -73,8 +91,8 @@ export default function App() {
           } else {
             // Profile document missing or unreadable
             const lowerEmail = authUser.email?.toLowerCase().trim() || '';
-            const isAdminEmail = ALLOWED_ADMIN_EMAILS.includes(lowerEmail);
-            if (isAdminEmail) {
+            const isSchoolAdminDomain = lowerEmail.endsWith('@akpanyschool.store');
+            if (hasAdminClaim || isSchoolAdminDomain) {
               const newProfile: UserProfile = {
                 uid: authUser.uid,
                 nom: getAdminNom(lowerEmail),
@@ -82,6 +100,7 @@ export default function App() {
                 role: 'admin',
                 status: 'active',
                 tel: '07 00 00 00 00',
+                etablissementId: 'akpany-principal',
                 createdAt: new Date().toISOString()
               };
               try {
@@ -96,18 +115,7 @@ export default function App() {
           }
         } catch (err) {
           console.warn('Profile fetch handled gracefully:', err);
-          const lowerEmail = authUser.email?.toLowerCase().trim() || '';
-          if (ALLOWED_ADMIN_EMAILS.includes(lowerEmail)) {
-            setProfile({
-              uid: authUser.uid,
-              nom: getAdminNom(lowerEmail),
-              email: lowerEmail,
-              role: 'admin',
-              status: 'active',
-              tel: '07 00 00 00 00',
-              createdAt: new Date().toISOString()
-            });
-          }
+          setProfile(null);
         }
       } else {
         setUser(null);
@@ -129,11 +137,12 @@ export default function App() {
 
   const handleLogout = async () => {
     try {
+      clearOfflineCache();
       await signOut(auth);
       setUser(null);
       setProfile(null);
       setScreen('login');
-      showToast('🔒 Déconnecté avec succès !');
+      showToast('🔒 Déconnecté avec succès ! Cache sécurisé.');
     } catch (err) {
       showToast('❌ Échec de la déconnexion.');
     }
@@ -154,7 +163,27 @@ export default function App() {
   }
 
   return (
-    <div className="font-sans text-[#1a1a1a] bg-[#f5f5f5] min-h-screen selection:bg-[#e0e0e0]">
+    <MultiTenancyProvider initialEtablissementId={profile?.etablissementId}>
+      <div className="font-sans text-[#1a1a1a] bg-[#f5f5f5] min-h-screen selection:bg-[#e0e0e0]">
+        {/* OFFLINE STATUS BANNER */}
+      {isOffline && (
+        <div className="bg-amber-900 text-amber-50 px-4 py-2.5 text-xs font-semibold flex items-center justify-between shadow-md sticky top-0 z-50 animate-in slide-in-from-top border-b border-amber-700">
+          <div className="flex items-center gap-2 max-w-6xl mx-auto w-full justify-between flex-wrap">
+            <div className="flex items-center gap-2">
+              <WifiOff size={16} className="text-amber-300 animate-pulse" />
+              <span>
+                <strong>Mode Hors-Ligne (PWA)</strong> — La consultation basique des élèves et des emplois du temps reste disponible hors-ligne.
+              </span>
+            </div>
+            {getLastSyncTime() && (
+              <span className="text-[11px] text-amber-200 bg-amber-950/60 px-2.5 py-0.5 rounded-lg border border-amber-800">
+                Dernière synchro : {getLastSyncTime()}
+              </span>
+            )}
+          </div>
+        </div>
+      )}
+
       {/* AUTH SCREENS */}
       {!user && (
         <>
@@ -279,5 +308,6 @@ export default function App() {
         ))}
       </div>
     </div>
+    </MultiTenancyProvider>
   );
 }

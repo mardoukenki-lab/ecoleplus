@@ -1,20 +1,18 @@
 import React, { useState } from 'react';
 import { auth, db } from '../lib/firebase';
-import { signInWithEmailAndPassword, createUserWithEmailAndPassword, sendPasswordResetEmail } from 'firebase/auth';
-import { doc, setDoc, getDoc } from 'firebase/firestore';
-
-export const ALLOWED_ADMIN_EMAILS = [
-  'mardoukenki@gmail.com'
-];
+import { signInWithEmailAndPassword, sendPasswordResetEmail } from 'firebase/auth';
+import { doc, getDoc, setDoc } from 'firebase/firestore';
+import { UserProfile } from '../types';
 
 export const getAdminNom = (email: string) => {
   const lower = email.toLowerCase().trim();
-  if (lower === 'mardoukenki@gmail.com') return 'Administration Générale';
-  return 'Administrateur';
+  if (lower.startsWith('admin') || lower.includes('etudes')) return 'Direction des Études';
+  if (lower.startsWith('direction') || lower.includes('general')) return 'Direction Générale';
+  return 'Administration Générale';
 };
 
 interface LoginScreenProps {
-  onLoginSuccess: (userProfile: any) => void;
+  onLoginSuccess: (userProfile: UserProfile) => void;
   onShowProfReg: () => void;
   onShowParentReg: () => void;
   showToast: (msg: string) => void;
@@ -35,10 +33,11 @@ export default function LoginScreen({ onLoginSuccess, onShowProfReg, onShowParen
     try {
       await sendPasswordResetEmail(auth, email.trim().toLowerCase());
       showToast(`📧 E-mail de réinitialisation envoyé à ${email.trim().toLowerCase()}. Veuillez vérifier votre boîte de réception.`);
-    } catch (err: any) {
+    } catch (err: unknown) {
       console.error(err);
+      const authErr = err as { code?: string };
       let msg = 'Erreur lors de l\'envoi de la réinitialisation.';
-      if (err.code === 'auth/user-not-found' || err.code === 'auth/invalid-email') {
+      if (authErr.code === 'auth/user-not-found' || authErr.code === 'auth/invalid-email') {
         msg = 'Aucun compte associé à cette adresse e-mail.';
       }
       showToast(`❌ ${msg}`);
@@ -55,7 +54,6 @@ export default function LoginScreen({ onLoginSuccess, onShowProfReg, onShowParen
     }
 
     const lowerEmail = email.toLowerCase().trim();
-    const isAdminEmail = ALLOWED_ADMIN_EMAILS.includes(lowerEmail);
 
     setLoading(true);
     try {
@@ -63,7 +61,11 @@ export default function LoginScreen({ onLoginSuccess, onShowProfReg, onShowParen
       const userCred = await signInWithEmailAndPassword(auth, lowerEmail, password);
       const uid = userCred.user.uid;
 
-      // Get user document
+      // Check Custom Claims on Auth Token
+      const tokenResult = await userCred.user.getIdTokenResult();
+      const hasAdminClaim = Boolean(tokenResult.claims && tokenResult.claims.admin === true);
+
+      // Get user document from Firestore
       let userDoc = null;
       try {
         userDoc = await getDoc(doc(db, 'users', uid));
@@ -72,15 +74,18 @@ export default function LoginScreen({ onLoginSuccess, onShowProfReg, onShowParen
       }
 
       if (!userDoc || !userDoc.exists()) {
-        if (isAdminEmail) {
+        // Bootstrap admin if user has custom claim or belongs to the school management domain
+        const isSchoolAdminDomain = lowerEmail.endsWith('@akpanyschool.store');
+        if (hasAdminClaim || isSchoolAdminDomain) {
           const adminNom = getAdminNom(lowerEmail);
-          const adminProfile = {
+          const adminProfile: UserProfile = {
             uid,
             nom: adminNom,
             email: lowerEmail,
-            role: 'admin' as const,
-            status: 'active' as const,
+            role: 'admin',
+            status: 'active',
             tel: '07 00 00 00 00',
+            etablissementId: 'akpany-principal',
             createdAt: new Date().toISOString()
           };
           await setDoc(doc(db, 'users', uid), adminProfile, { merge: true });
@@ -94,12 +99,7 @@ export default function LoginScreen({ onLoginSuccess, onShowProfReg, onShowParen
         }
       }
 
-      let profile = userDoc.data();
-
-      if (isAdminEmail && profile.role !== 'admin') {
-        profile = { ...profile, role: 'admin', status: 'active' };
-        await setDoc(doc(db, 'users', uid), profile, { merge: true });
-      }
+      const profile = userDoc.data() as UserProfile;
 
       if (profile.status === 'pending') {
         showToast('🟡 Votre compte est en attente de validation par l\'administration.');
@@ -114,10 +114,11 @@ export default function LoginScreen({ onLoginSuccess, onShowProfReg, onShowParen
       }
 
       onLoginSuccess(profile);
-    } catch (err: any) {
+    } catch (err: unknown) {
       console.error('Login error:', err);
-      const code = err?.code || '';
-      const msg = err?.message || '';
+      const authErr = err as { code?: string; message?: string };
+      const code = authErr?.code || '';
+      const msg = authErr?.message || '';
       let errorMsg = 'Identifiants invalides ou problème de connexion.';
 
       if (code === 'auth/network-request-failed' || msg.includes('network-request-failed')) {

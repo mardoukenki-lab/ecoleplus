@@ -8,9 +8,12 @@ import MessagerieView from './MessagerieView';
 import BulletinView from './BulletinView';
 import EmploiDuTempsView from './EmploiDuTempsView';
 import StudentMonthlyStatsView from './StudentMonthlyStatsView';
+import ExamCalendarView from './ExamCalendarView';
 import { calculateStudentMonthlyStat, printIndividualMonthlyReport, getCurrentYearMonth } from '../lib/studentMonthlyStats';
 import { getTranchesForPaiement, getStudentTuitionStatus } from '../lib/tuitionUtils';
 import MobileMoneyPaymentModal from './MobileMoneyPaymentModal';
+import BulletinPrintModal from './BulletinPrintModal';
+import AttendanceSummaryWidget from './AttendanceSummaryWidget';
 
 interface ParentViewProps {
   user: UserProfile;
@@ -36,6 +39,9 @@ export default function ParentView({ user, onLogout, showToast }: ParentViewProp
   // Mobile Money Payment Modal State
   const [isMobileMoneyModalOpen, setIsMobileMoneyModalOpen] = useState(false);
   const [selectedTrancheForPay, setSelectedTrancheForPay] = useState<Tranche | null>(null);
+
+  // Bulletin PDF Modal state
+  const [showBulletinModal, setShowBulletinModal] = useState(false);
 
   // Mobile drawer state
   const [isMobilePlusMenuOpen, setIsMobilePlusMenuOpen] = useState(false);
@@ -260,6 +266,12 @@ export default function ParentView({ user, onLogout, showToast }: ParentViewProp
                 📅 Emploi du temps
               </button>
               <button
+                onClick={() => setActiveTab('examens')}
+                className={`w-full flex items-center gap-3 px-3 py-2.5 rounded-xl text-xs font-semibold tracking-tight transition-all cursor-pointer ${activeTab === 'examens' ? 'bg-[#1a1a1a] text-white' : 'text-[#9e9e9e] hover:bg-[#f5f5f5]/60 hover:text-[#1a1a1a]'}`}
+              >
+                🗓️ Calendrier des Examens
+              </button>
+              <button
                 onClick={() => setActiveTab('observations')}
                 className={`w-full flex items-center justify-between px-3 py-2.5 rounded-xl text-xs font-semibold tracking-tight transition-all cursor-pointer ${activeTab === 'observations' ? 'bg-[#1a1a1a] text-white' : 'text-[#9e9e9e] hover:bg-[#f5f5f5]/60 hover:text-[#1a1a1a]'}`}
               >
@@ -328,6 +340,7 @@ export default function ParentView({ user, onLogout, showToast }: ParentViewProp
                 {activeTab === 'statistiques' && 'Statistiques mensuelles de l\'élève'}
                 {activeTab === 'presence' && 'Registre de ponctualité'}
                 {activeTab === 'emploi' && 'Grille horaire hebdomadaire'}
+                {activeTab === 'examens' && 'Calendrier des examens & épreuves'}
                 {activeTab === 'observations' && 'Dossier & Observations'}
                 {activeTab === 'paiements' && 'Frais scolaires & Comptabilité'}
                 {activeTab === 'notifications' && 'Historique de notifications'}
@@ -353,6 +366,18 @@ export default function ParentView({ user, onLogout, showToast }: ParentViewProp
           </div>
 
           <div className="flex items-center gap-2">
+            {selectedKid && (
+              <button
+                onClick={() => setShowBulletinModal(true)}
+                className="px-2.5 sm:px-3 py-1.5 bg-[#1a1a1a] hover:bg-black text-white text-[10px] sm:text-xs font-bold rounded-xl flex items-center gap-1.5 transition-all cursor-pointer shadow-sm active:scale-95"
+                title="Générer et imprimer le bulletin de notes en version PDF"
+              >
+                <FileText size={13} />
+                <span className="hidden sm:inline">Bulletin PDF</span>
+                <span className="sm:hidden">PDF</span>
+              </button>
+            )}
+
             <button
               onClick={() => setActiveTab('notifications')}
               className="relative w-8 h-8 md:w-9 md:h-9 rounded-xl border border-[#e0e0e0] flex items-center justify-center text-[#1a1a1a] hover:bg-[#f5f5f5] transition-all cursor-pointer"
@@ -500,12 +525,35 @@ export default function ParentView({ user, onLogout, showToast }: ParentViewProp
                         <p className="text-[9px] font-bold uppercase tracking-widest text-[#9e9e9e] mt-1">Moyenne générale</p>
                       </div>
                     </div>
-                    <div className="bg-white rounded-[24px] p-5 border border-[#e0e0e0] shadow-sm flex items-center gap-4">
-                      <div className="w-10 h-10 rounded-xl bg-[#f5f5f5] text-[#1a1a1a] flex items-center justify-center text-lg">📌</div>
+                    <div 
+                      onClick={() => setActiveTab('presence')}
+                      title="Cliquez pour consulter le registre d'assiduité"
+                      className={`rounded-[24px] p-5 border shadow-sm flex items-center gap-4 cursor-pointer transition-all hover:scale-[1.01] ${
+                        absences.filter(a => a.statut === 'absent').length >= 5 
+                          ? 'bg-red-50/80 border-red-300' 
+                          : 'bg-white border-[#e0e0e0]'
+                      }`}
+                    >
+                      <div className={`w-10 h-10 rounded-xl flex items-center justify-center text-lg ${
+                        absences.filter(a => a.statut === 'absent').length >= 5 
+                          ? 'bg-red-100 text-red-600' 
+                          : 'bg-[#f5f5f5] text-[#1a1a1a]'
+                      }`}>
+                        {absences.filter(a => a.statut === 'absent').length >= 5 ? '🚨' : '📌'}
+                      </div>
                       <div>
-                        <span className="text-xl font-bold font-sans text-[#1a1a1a] leading-none">
-                          {absences.filter(a => a.statut === 'absent').length}
-                        </span>
+                        <div className="flex items-center gap-1.5">
+                          <span className={`text-xl font-bold font-sans leading-none ${
+                            absences.filter(a => a.statut === 'absent').length >= 5 ? 'text-red-600' : 'text-[#1a1a1a]'
+                          }`}>
+                            {absences.filter(a => a.statut === 'absent').length}
+                          </span>
+                          {absences.filter(a => a.statut === 'absent').length >= 5 && (
+                            <span className="text-[9px] font-black uppercase tracking-wider bg-red-600 text-white px-1.5 py-0.5 rounded animate-pulse">
+                              Critique
+                            </span>
+                          )}
+                        </div>
                         <p className="text-[9px] font-bold uppercase tracking-widest text-[#9e9e9e] mt-1">Absences Trimestre</p>
                       </div>
                     </div>
@@ -585,6 +633,16 @@ export default function ParentView({ user, onLogout, showToast }: ParentViewProp
                     </div>
                   )}
 
+                  {/* Visual Summary of Absences and Retards with Critical Threshold Alert */}
+                  {selectedKid && (
+                    <AttendanceSummaryWidget
+                      student={selectedKid}
+                      absences={absences}
+                      onNavigateToPresence={() => setActiveTab('presence')}
+                      onNavigateToMessagerie={() => setActiveTab('messagerie')}
+                    />
+                  )}
+
                   {/* Layout split */}
                   <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
                     {/* Latest Marks Widget */}
@@ -592,8 +650,9 @@ export default function ParentView({ user, onLogout, showToast }: ParentViewProp
                       <div className="flex justify-between items-center mb-2">
                         <h3 className="font-bold text-[10px] uppercase tracking-widest text-[#9e9e9e]">📝 Dernières notes obtenues</h3>
                         <button
-                          onClick={() => setActiveTab('resultats')}
+                          onClick={() => setShowBulletinModal(true)}
                           className="text-[10px] font-extrabold text-[#1a1a1a] hover:underline flex items-center gap-1 cursor-pointer uppercase tracking-wider"
+                          title="Ouvrir la version imprimable du bulletin scolaire"
                         >
                           <FileText size={12} /> Exporter Bulletin PDF ➔
                         </button>
@@ -671,19 +730,65 @@ export default function ParentView({ user, onLogout, showToast }: ParentViewProp
 
               {activeTab === 'presence' && (
                 <div className="space-y-6">
-                  <div className="grid grid-cols-2 gap-4">
+                  {/* Critical Threshold Alert in presence tab if reached */}
+                  {(absences.filter(a => (a.statut || '').toLowerCase().includes('absent') || (a.statut || '').toLowerCase().includes('non')).length >= 3 || absences.length >= 5) && (
+                    <div className="bg-red-950 text-white rounded-2xl p-4 border border-red-800 flex flex-col sm:flex-row sm:items-center justify-between gap-3 shadow-sm">
+                      <div className="flex items-center gap-3">
+                        <span className="text-2xl p-2 bg-red-600/30 text-red-400 rounded-xl flex-shrink-0">🚨</span>
+                        <div>
+                          <p className="text-xs font-bold text-red-300">
+                            Attention : Le seuil critique d'absentéisme est atteint pour cet élève ({absences.filter(a => (a.statut || '').toLowerCase().includes('absent')).length} absences non justifiées).
+                          </p>
+                          <p className="text-[11px] text-red-200 mt-0.5">
+                            Risque d'avertissement de conduite et de convocation auprès de la direction des études.
+                          </p>
+                        </div>
+                      </div>
+                      <button
+                        onClick={() => setActiveTab('messagerie')}
+                        className="bg-red-600 hover:bg-red-700 text-white text-xs font-bold px-3.5 py-2 rounded-xl transition-all cursor-pointer flex items-center gap-1.5 self-start sm:self-auto flex-shrink-0 shadow-sm"
+                      >
+                        <MessageSquare size={13} /> Justifier une absence
+                      </button>
+                    </div>
+                  )}
+
+                  <div className="grid grid-cols-2 lg:grid-cols-4 gap-4">
                     <div className="bg-white p-5 border border-[#e0e0e0] rounded-[20px] shadow-sm flex items-center gap-4">
                       <div className="w-10 h-10 rounded-xl bg-red-50 text-red-700 flex items-center justify-center text-lg font-bold">✕</div>
                       <div>
-                        <span className="text-lg font-bold text-[#1a1a1a]">{absences.filter(a => a.statut === 'absent').length}</span>
-                        <p className="text-[10px] text-[#9e9e9e] font-bold uppercase tracking-widest mt-0.5">Absences cumulées</p>
+                        <span className="text-lg font-bold text-red-600">
+                          {absences.filter(a => {
+                            const s = (a.statut || '').toLowerCase();
+                            return s === 'absent' || s === 'non_justifie' || s.includes('non');
+                          }).length}
+                        </span>
+                        <p className="text-[10px] text-[#9e9e9e] font-bold uppercase tracking-widest mt-0.5">Non Justifiées</p>
+                      </div>
+                    </div>
+                    <div className="bg-white p-5 border border-[#e0e0e0] rounded-[20px] shadow-sm flex items-center gap-4">
+                      <div className="w-10 h-10 rounded-xl bg-emerald-50 text-emerald-700 flex items-center justify-center text-lg font-bold">✓</div>
+                      <div>
+                        <span className="text-lg font-bold text-emerald-700">
+                          {absences.filter(a => (a.statut || '').toLowerCase().includes('justifi')).length}
+                        </span>
+                        <p className="text-[10px] text-[#9e9e9e] font-bold uppercase tracking-widest mt-0.5">Justifiées</p>
                       </div>
                     </div>
                     <div className="bg-white p-5 border border-[#e0e0e0] rounded-[20px] shadow-sm flex items-center gap-4">
                       <div className="w-10 h-10 rounded-xl bg-amber-50 text-amber-700 flex items-center justify-center text-lg font-bold">⏱</div>
                       <div>
-                        <span className="text-lg font-bold text-[#1a1a1a]">{absences.filter(a => a.statut === 'retard').length}</span>
+                        <span className="text-lg font-bold text-amber-700">
+                          {absences.filter(a => (a.statut || '').toLowerCase().includes('retard')).length}
+                        </span>
                         <p className="text-[10px] text-[#9e9e9e] font-bold uppercase tracking-widest mt-0.5">Retards consignés</p>
+                      </div>
+                    </div>
+                    <div className="bg-white p-5 border border-[#e0e0e0] rounded-[20px] shadow-sm flex items-center gap-4">
+                      <div className="w-10 h-10 rounded-xl bg-[#f5f5f5] text-[#1a1a1a] flex items-center justify-center text-lg font-bold">📊</div>
+                      <div>
+                        <span className="text-lg font-bold text-[#1a1a1a]">{absences.length}</span>
+                        <p className="text-[10px] text-[#9e9e9e] font-bold uppercase tracking-widest mt-0.5">Total Événements</p>
                       </div>
                     </div>
                   </div>
@@ -730,6 +835,15 @@ export default function ParentView({ user, onLogout, showToast }: ParentViewProp
                 <EmploiDuTempsView
                   currentUser={user}
                   classesList={Array.from(new Set([selectedKid.classe, '6e A', '6e B', '5e A', '5e B', '4e C', '3e A']))}
+                  showToast={showToast}
+                />
+              )}
+
+              {activeTab === 'examens' && (
+                <ExamCalendarView
+                  currentUser={user}
+                  userRole="parent"
+                  targetClassFilter={selectedKid.classe}
                   showToast={showToast}
                 />
               )}
@@ -1278,6 +1392,12 @@ export default function ParentView({ user, onLogout, showToast }: ParentViewProp
                 📅 Emploi du temps
               </button>
               <button
+                onClick={() => { setActiveTab('examens'); setIsMobilePlusMenuOpen(false); }}
+                className="p-3 bg-[#f5f5f5] hover:bg-[#1a1a1a] hover:text-white rounded-xl text-left"
+              >
+                🗓️ Dates d'Examens
+              </button>
+              <button
                 onClick={() => { setActiveTab('observations'); setIsMobilePlusMenuOpen(false); }}
                 className="p-3 bg-[#f5f5f5] hover:bg-[#1a1a1a] hover:text-white rounded-xl text-left"
               >
@@ -1353,6 +1473,16 @@ export default function ParentView({ user, onLogout, showToast }: ParentViewProp
             setIsMobileMoneyModalOpen(false);
             setSelectedTrancheForPay(null);
           }}
+          showToast={showToast}
+        />
+      )}
+
+      {/* Printable Bulletin Modal */}
+      {showBulletinModal && selectedKid && (
+        <BulletinPrintModal
+          student={selectedKid}
+          allStudents={kidsList}
+          onClose={() => setShowBulletinModal(false)}
           showToast={showToast}
         />
       )}

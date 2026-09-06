@@ -201,7 +201,7 @@ function buildNotificationEmail(notif) {
 }
 
 // Types de notification pour lesquelles un e-mail doit réellement partir
-const EMAIL_ENABLED_TYPES = ['absence', 'annonce', 'paiement'];
+const EMAIL_ENABLED_TYPES = ['absence', 'annonce', 'paiement', 'examen'];
 
 /**
  * Cloud Function déclenchée automatiquement lors de la création d'une notification.

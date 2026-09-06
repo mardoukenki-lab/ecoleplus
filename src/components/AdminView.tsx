@@ -2,9 +2,10 @@ import React, { useState, useEffect, useMemo } from 'react';
 import { db, handleFirestoreError, OperationType } from '../lib/firebase';
 import { collection, query, where, getDocs, getDoc, doc, setDoc, updateDoc, deleteDoc, onSnapshot, writeBatch } from 'firebase/firestore';
 import { UserProfile, Eleve, Note, Absence, CahierTexte, Paiement, Annonce, AppNotification, AuditLog, Observation } from '../types';
+import { cacheOfflineStudents } from '../lib/offlineSync';
 import StudentImportModal from './StudentImportModal';
 import StudentMonthlyStatsView from './StudentMonthlyStatsView';
-import { clearAllDatabaseData, restoreDemoData } from '../lib/demoData';
+import { clearAllDatabaseData, restoreDemoData, exportFullDatabaseBackup } from '../lib/demoData';
 import { triggerEmailNotification, dispatchParentNotification } from '../lib/notifications';
 import { computeFinancialSummary, getTranchesForPaiement, getStudentTuitionStatus } from '../lib/tuitionUtils';
 import { 
@@ -14,6 +15,7 @@ import MessagerieView from './MessagerieView';
 import ClassesView from './ClassesView';
 import EmploiDuTempsView from './EmploiDuTempsView';
 import BulletinView from './BulletinView';
+import ExamCalendarView from './ExamCalendarView';
 import { 
   ResponsiveContainer, BarChart, Bar, XAxis, YAxis, Tooltip, Legend, CartesianGrid 
 } from 'recharts';
@@ -133,13 +135,30 @@ export default function AdminView({ user, onLogout, showToast }: AdminViewProps)
   const [selectedEleveForClassChange, setSelectedEleveForClassChange] = useState<Eleve | null>(null);
   const [newClasseInput, setNewClasseInput] = useState('');
   const [customClasseInput, setCustomClasseInput] = useState('');
+  const [resetConfirmInput, setResetConfirmInput] = useState('');
+
+  const handleExportBackupOnly = async () => {
+    try {
+      showToast('⏳ Exportation de la sauvegarde complète en cours...');
+      await exportFullDatabaseBackup();
+      showToast('✅ Sauvegarde JSON téléchargée avec succès !');
+    } catch (err) {
+      console.error(err);
+      showToast('❌ Erreur lors de l\'export de la sauvegarde.');
+    }
+  };
 
   const handleConfirmResetDatabase = async () => {
+    if (resetConfirmInput.trim().toUpperCase() !== 'VIDER LA BASE') {
+      showToast('⚠️ Veuillez saisir exactement "VIDER LA BASE" pour confirmer la purge.');
+      return;
+    }
     setIsResetting(true);
     try {
-      await clearAllDatabaseData();
-      showToast('✨ Dashboard réinitialisé avec succès ! Base de données en Mode Vierge prêt pour la production.');
+      await clearAllDatabaseData({ uid: user.uid, email: user.email, nom: user.nom });
+      showToast('✨ Dashboard réinitialisé avec succès ! Sauvegarde automatique exportée et journalisée.');
       setIsResetModalOpen(false);
+      setResetConfirmInput('');
     } catch (err) {
       console.error(err);
       showToast('❌ Erreur lors de la réinitialisation de la base.');
@@ -192,6 +211,7 @@ export default function AdminView({ user, onLogout, showToast }: AdminViewProps)
       const sList: Eleve[] = [];
       snap.forEach(d => sList.push(d.data() as Eleve));
       setStudents(sList);
+      cacheOfflineStudents(sList);
     }, (err) => console.warn('Students listener notice:', err));
 
     const unsubPayments = onSnapshot(collection(db, 'paiements'), (snap) => {
@@ -1167,6 +1187,12 @@ export default function AdminView({ user, onLogout, showToast }: AdminViewProps)
               >
                 📅 Emploi du temps
               </button>
+              <button
+                onClick={() => navigate(setActiveTab, 'examens')}
+                className={`w-full flex items-center gap-3 px-3 py-2.5 rounded-xl text-xs font-semibold tracking-tight transition-all cursor-pointer ${activeTab === 'examens' ? 'bg-[#1a1a1a] text-white' : 'text-[#9e9e9e] hover:bg-[#f5f5f5]/60 hover:text-[#1a1a1a]'}`}
+              >
+                🗓️ Examens & Épreuves
+              </button>
             </div>
           </div>
 
@@ -2006,6 +2032,16 @@ export default function AdminView({ user, onLogout, showToast }: AdminViewProps)
             />
           )}
 
+          {activeTab === 'examens' && (
+            <ExamCalendarView
+              currentUser={user}
+              userRole="admin"
+              students={students}
+              classesList={classesList}
+              showToast={showToast}
+            />
+          )}
+
           {activeTab === 'bulletins' && (
             <BulletinView currentUser={user} studentsList={students} showToast={showToast} />
           )}
@@ -2479,6 +2515,12 @@ export default function AdminView({ user, onLogout, showToast }: AdminViewProps)
                 📅 Emploi du temps
               </button>
               <button
+                onClick={() => { setActiveTab('examens'); setIsMobilePlusMenuOpen(false); }}
+                className="p-3 bg-[#f5f5f5] hover:bg-[#1a1a1a] hover:text-white rounded-xl text-left"
+              >
+                🗓️ Examens & Épreuves
+              </button>
+              <button
                 onClick={() => { setActiveTab('bulletins'); setIsMobilePlusMenuOpen(false); }}
                 className="p-3 bg-[#f5f5f5] hover:bg-[#1a1a1a] hover:text-white rounded-xl text-left"
               >
@@ -2940,41 +2982,70 @@ export default function AdminView({ user, onLogout, showToast }: AdminViewProps)
       {/* RESET DATABASE CONFIRMATION MODAL */}
       {isResetModalOpen && (
         <div className="fixed inset-0 bg-black/50 z-50 flex items-center justify-center p-4 backdrop-blur-xs animate-fade-in">
-          <div className="bg-white rounded-[32px] border border-[#e0e0e0] max-w-md w-full p-6 shadow-2xl space-y-5 text-center">
+          <div className="bg-white rounded-[32px] border border-[#e0e0e0] max-w-lg w-full p-6 shadow-2xl space-y-5 text-center">
             <div className="w-14 h-14 bg-red-50 text-red-600 rounded-2xl border border-red-200 flex items-center justify-center mx-auto text-2xl">
-              🧹
+              🛡️
             </div>
             <div>
               <h3 className="font-sans font-bold text-lg text-[#1a1a1a] tracking-tight">
-                Réinitialiser le Dashboard en Mode Vierge ?
+                Purge Sécurisée de la Base de Données
               </h3>
               <p className="text-xs text-[#757575] leading-relaxed mt-2 font-medium">
-                Cette action va effacer toutes les données de démonstration (élèves de test, notes, absences, paiements, annonces) de la base de données. 
-                Votre tableau de bord sera totalement propre et prêt pour une utilisation réelle en production.
+                Cette action supprimera l'intégralité des données scolaires (élèves, notes, absences, paiements, examens). 
+                Une <strong>sauvegarde complète JSON</strong> est automatiquement générée et téléchargée avant toute suppression.
               </p>
             </div>
 
-            <div className="p-3 bg-[#f5f5f5] rounded-xl border border-[#e0e0e0] text-[11px] text-[#1a1a1a] font-semibold text-left space-y-1">
-              <div>✓ Élèves & Frais scolaires : vider à 0</div>
-              <div>✓ Notes & Bulletins : vider à 0</div>
-              <div>✓ Absences & Cahier de texte : vider à 0</div>
-              <div>✓ Mode Production propre prêt pour la rentrée</div>
+            <div className="p-3.5 bg-[#f5f5f5] rounded-2xl border border-[#e0e0e0] text-[11px] text-[#1a1a1a] text-left space-y-2">
+              <div className="flex items-center justify-between">
+                <span className="font-bold text-gray-700">Sécurité & Sauvegarde :</span>
+                <button
+                  type="button"
+                  onClick={handleExportBackupOnly}
+                  className="px-2.5 py-1 bg-white border border-[#e0e0e0] hover:bg-gray-50 rounded-lg font-bold text-[10px] text-sky-700 flex items-center gap-1 cursor-pointer"
+                >
+                  📥 Télécharger Sauvegarde JSON
+                </button>
+              </div>
+              <div className="text-[#9e9e9e] font-medium leading-normal">
+                ✓ Enregistrement immuable dans le journal d'audit (<code className="text-[#1a1a1a]">audit_log</code>)<br/>
+                ✓ Mode Vierge prêt pour la nouvelle année académique
+              </div>
+            </div>
+
+            <div className="text-left space-y-1.5">
+              <label className="block text-[10px] font-bold text-red-700 uppercase tracking-wider">
+                Double confirmation : saisissez exactement "VIDER LA BASE" ci-dessous
+              </label>
+              <input
+                type="text"
+                value={resetConfirmInput}
+                onChange={(e) => setResetConfirmInput(e.target.value)}
+                placeholder="VIDER LA BASE"
+                className="w-full px-3.5 py-2.5 border-2 border-red-200 rounded-xl text-xs font-mono font-bold text-red-900 bg-red-50/30 focus:outline-none focus:border-red-600"
+              />
             </div>
 
             <div className="flex gap-3 pt-2">
               <button
-                onClick={() => setIsResetModalOpen(false)}
+                type="button"
+                onClick={() => { setIsResetModalOpen(false); setResetConfirmInput(''); }}
                 disabled={isResetting}
                 className="flex-1 py-2.5 border border-[#e0e0e0] hover:bg-[#f5f5f5] rounded-xl text-xs font-bold text-[#1a1a1a] transition-all cursor-pointer"
               >
                 Annuler
               </button>
               <button
+                type="button"
                 onClick={handleConfirmResetDatabase}
-                disabled={isResetting}
-                className="flex-1 py-2.5 bg-red-600 hover:bg-red-700 text-white rounded-xl text-xs font-bold uppercase tracking-wider transition-all cursor-pointer shadow-sm flex items-center justify-center gap-1.5"
+                disabled={isResetting || resetConfirmInput.trim().toUpperCase() !== 'VIDER LA BASE'}
+                className={`flex-1 py-2.5 rounded-xl text-xs font-bold uppercase tracking-wider transition-all cursor-pointer shadow-sm flex items-center justify-center gap-1.5 ${
+                  resetConfirmInput.trim().toUpperCase() === 'VIDER LA BASE'
+                    ? 'bg-red-600 hover:bg-red-700 text-white'
+                    : 'bg-gray-200 text-gray-400 cursor-not-allowed'
+                }`}
               >
-                {isResetting ? 'Réinitialisation...' : '✓ Oui, Vider la base'}
+                {isResetting ? 'Sauvegarde & Purge...' : '✓ Confirmer la Purge'}
               </button>
             </div>
           </div>

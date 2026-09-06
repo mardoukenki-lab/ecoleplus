@@ -2,7 +2,8 @@ import React, { useState, useEffect } from 'react';
 import { db } from '../lib/firebase';
 import { collection, onSnapshot, doc, setDoc, deleteDoc } from 'firebase/firestore';
 import { ScheduleSlot, UserProfile } from '../types';
-import { Calendar, Clock, Plus, Trash2, BookOpen, User, Building } from 'lucide-react';
+import { Calendar, Clock, Plus, Trash2, BookOpen, User, Building, WifiOff } from 'lucide-react';
+import { cacheOfflineSchedules, getCachedOfflineSchedules } from '../lib/offlineSync';
 
 interface EmploiDuTempsViewProps {
   currentUser: UserProfile;
@@ -31,16 +32,28 @@ export default function EmploiDuTempsView({ currentUser, classesList, showToast 
     }
   }, [classesList]);
 
-  // Fetch real schedules from Firestore
+  // Fetch real schedules from Firestore with offline fallback
   useEffect(() => {
+    const cached = getCachedOfflineSchedules();
+    if (cached && cached.length > 0) {
+      setSchedules(cached);
+    }
+
     const unsub = onSnapshot(
       collection(db, 'schedules'),
       (snap) => {
         const list: ScheduleSlot[] = [];
         snap.forEach((d) => list.push(d.data() as ScheduleSlot));
         setSchedules(list);
+        cacheOfflineSchedules(list);
       },
-      (err) => console.warn('Schedule listener error:', err)
+      (err) => {
+        console.warn('Schedule listener error (offline mode active):', err);
+        const fallback = getCachedOfflineSchedules();
+        if (fallback && fallback.length > 0) {
+          setSchedules(fallback);
+        }
+      }
     );
     return () => unsub();
   }, []);

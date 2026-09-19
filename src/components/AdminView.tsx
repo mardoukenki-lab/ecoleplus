@@ -8,13 +8,15 @@ import StudentMonthlyStatsView from './StudentMonthlyStatsView';
 import { clearAllDatabaseData, restoreDemoData, exportFullDatabaseBackup } from '../lib/demoData';
 import { triggerEmailNotification, dispatchParentNotification } from '../lib/notifications';
 import { computeFinancialSummary, getTranchesForPaiement, getStudentTuitionStatus } from '../lib/tuitionUtils';
+import ReceiptModal from './ReceiptModal';
 import { 
-  Users, UserCheck, BookOpen, Clock, CreditCard, Bell, LogOut, ChevronRight, Check, X, Eye, Plus, Send, RefreshCw, Star, FileSpreadsheet, Upload, Trash2, RotateCcw, Sparkles, MessageSquare, Archive, ShieldAlert, FileText, Menu, AlertTriangle, GraduationCap
+  Users, UserCheck, BookOpen, Clock, CreditCard, Bell, LogOut, ChevronRight, Check, X, Eye, Plus, Send, RefreshCw, Star, FileSpreadsheet, Upload, Trash2, RotateCcw, Sparkles, MessageSquare, Archive, ShieldAlert, FileText, Menu, AlertTriangle, GraduationCap, Printer, Building2
 } from 'lucide-react';
 import MessagerieView from './MessagerieView';
 import ClassesView from './ClassesView';
 import EmploiDuTempsView from './EmploiDuTempsView';
 import BulletinView from './BulletinView';
+import BulletinPrintModal from './BulletinPrintModal';
 import ExamCalendarView from './ExamCalendarView';
 import { 
   ResponsiveContainer, BarChart, Bar, XAxis, YAxis, Tooltip, Legend, CartesianGrid 
@@ -38,6 +40,7 @@ export default function AdminView({ user, onLogout, showToast }: AdminViewProps)
   const [allAbsencesFull, setAllAbsencesFull] = useState<Absence[]>([]);
   const [allNotes, setAllNotes] = useState<Note[]>([]);
   const [allObservations, setAllObservations] = useState<Observation[]>([]);
+  const [modalStudentForBulletin, setModalStudentForBulletin] = useState<Eleve | null>(null);
   const [firestoreClasses, setFirestoreClasses] = useState<string[]>([]);
   const [firestoreClassesDocs, setFirestoreClassesDocs] = useState<{ id: string; name: string; scolarite?: number }[]>([]);
 
@@ -82,16 +85,27 @@ export default function AdminView({ user, onLogout, showToast }: AdminViewProps)
   // Parent users list
   const parentUsers = useMemo(() => allUsers.filter(u => u.role === 'parent'), [allUsers]);
 
-  // New Payment Form
+  // New Payment Form (Caisse de l'établissement)
   const [payEleveId, setPayEleveId] = useState('');
   const [payMontant, setPayMontant] = useState('25000');
-  const [payMode, setPayMode] = useState('Wave');
+  const [payMode, setPayMode] = useState('Espèces (Caisse)');
   const [payRecuNo, setPayRecuNo] = useState(`REC-${new Date().getFullYear()}-${Math.floor(100 + Math.random() * 900)}`);
 
-  // Financial Dashboard Filters & Detail Modal State
+  // Financial Dashboard Filters, Detail Modal State & Receipt Modal State
   const [paymentFilter, setPaymentFilter] = useState<'all' | 'retard' | 'ajour' | 'encours'>('all');
   const [selectedPaymentForDetail, setSelectedPaymentForDetail] = useState<Paiement | null>(null);
   const [isSendingBulkReminders, setIsSendingBulkReminders] = useState(false);
+  const [adminReceiptToPrint, setAdminReceiptToPrint] = useState<{
+    h: {
+      date: string;
+      montant: number;
+      mode: string;
+      recuNo?: string;
+      trancheNom?: string;
+      transactionRef?: string;
+    };
+    p: Paiement;
+  } | null>(null);
 
   // New Prof Form
   const [newProfNom, setNewProfNom] = useState('');
@@ -436,7 +450,22 @@ export default function AdminView({ user, onLogout, showToast }: AdminViewProps)
     try {
       await setDoc(doc(db, 'paiements', payId), updatedPaiement, { merge: true });
       await updateDoc(doc(db, 'eleves', payEleveId), { scolaritePayee: newPaye });
-      showToast(`💳 Règlement de ${numMontant.toLocaleString('fr-FR')} F enregistré pour ${student.nom} !`);
+
+      // Notify parent about the cashier payment confirmation
+      if (student.parentUid) {
+        const parentUser = parentUsers.find(u => u.uid === student.parentUid);
+        dispatchParentNotification({
+          targetUid: student.parentUid,
+          icon: '🧾',
+          bg: 'bg-emerald-100 text-emerald-900',
+          title: `Reçu de caisse : Versement pour ${student.nom}`,
+          text: `Un versement de ${numMontant.toLocaleString('fr-FR')} FCFA (${payMode}) a été enregistré avec succès à la caisse pour ${student.nom}. Reçu N° ${payRecuNo}. Solde restant: ${newSolde.toLocaleString('fr-FR')} FCFA.`,
+          parentEmail: parentUser?.email || null,
+          type: 'paiement'
+        }).catch(err => console.warn('Could not dispatch payment notification:', err));
+      }
+
+      showToast(`💳 Règlement de ${numMontant.toLocaleString('fr-FR')} F enregistré à la caisse pour ${student.nom} !`);
       setIsPaiementModalOpen(false);
       setPayMontant('25000');
       setPayRecuNo(`REC-${new Date().getFullYear()}-${Math.floor(100 + Math.random() * 900)}`);
@@ -467,10 +496,10 @@ export default function AdminView({ user, onLogout, showToast }: AdminViewProps)
 
           await dispatchParentNotification({
             targetUid: targetParentUid,
-            icon: '💳',
+            icon: '🏛️',
             bg: 'bg-amber-100 text-amber-900',
             title: `⚠️ Rappel d'Échéance Scolarité : ${p.eleveNom}`,
-            text: `Rappel de versement pour ${p.eleveNom} (${p.classe}) : ${trancheLabel}. Vous pouvez régler directement par Mobile Money (Wave, Orange, MTN) depuis votre espace Parent.`,
+            text: `Rappel de versement pour ${p.eleveNom} (${p.classe}) : ${trancheLabel}. Veuillez vous présenter à la caisse de l'établissement pour régulariser votre versement.`,
             parentEmail,
             type: 'paiement'
           });
@@ -1611,6 +1640,13 @@ export default function AdminView({ user, onLogout, showToast }: AdminViewProps)
                     {showArchivedStudents ? 'Masquer les archivés' : `Afficher les archivés (${students.filter(s => s.statut === 'archive').length})`}
                   </button>
                   <button 
+                    onClick={() => setActiveTab('bulletins')}
+                    className="bg-white hover:bg-[#f5f5f5] text-[#1a1a1a] border border-[#e0e0e0] font-bold py-2.5 px-3.5 rounded-xl text-xs flex items-center gap-1.5 shadow-2xs cursor-pointer uppercase tracking-wider transition-all"
+                    title="Accéder à l'espace officiel des bulletins et exporter en PDF"
+                  >
+                    <FileText size={15} /> Exporter Bulletins PDF
+                  </button>
+                  <button 
                     onClick={() => setIsImportModalOpen(true)}
                     className="bg-[#f5f5f5] hover:bg-[#1a1a1a] text-[#1a1a1a] hover:text-white border border-[#e0e0e0] font-bold py-2.5 px-4 rounded-xl text-xs flex items-center gap-2 shadow-2xs cursor-pointer uppercase tracking-wider transition-all"
                   >
@@ -1671,6 +1707,14 @@ export default function AdminView({ user, onLogout, showToast }: AdminViewProps)
                       </div>
 
                       <div className="flex items-center justify-end gap-2 pt-2 border-t border-[#f0f0f0]">
+                        <button
+                          type="button"
+                          onClick={() => setModalStudentForBulletin(s)}
+                          className="px-2.5 py-1.5 bg-[#f5f5f5] hover:bg-[#1a1a1a] hover:text-white text-[#1a1a1a] border border-[#e0e0e0] rounded-xl text-xs font-bold flex items-center gap-1 transition-all cursor-pointer shadow-2xs"
+                          title="Générer et exporter le bulletin de notes en PDF"
+                        >
+                          <FileText size={13} /> Bulletin PDF
+                        </button>
                         {s.statut === 'archive' ? (
                           <>
                             <button
@@ -1771,32 +1815,42 @@ export default function AdminView({ user, onLogout, showToast }: AdminViewProps)
                             </span>
                           </td>
                           <td className="py-3.5 px-5 text-right">
-                            {s.statut === 'archive' ? (
-                              <div className="flex items-center justify-end gap-1.5">
-                                <button
-                                  onClick={() => handleRestoreEleve(s)}
-                                  title="Restaurer l'élève dans la liste active"
-                                  className="px-2.5 py-1 bg-emerald-50 text-emerald-700 border border-emerald-200 hover:bg-emerald-100 rounded-lg transition-colors cursor-pointer text-[11px] font-bold flex items-center gap-1"
-                                >
-                                  <RotateCcw size={13} /> Restaurer
-                                </button>
-                                <button
-                                  onClick={() => handleOpenDeleteModal(s, 'eleve')}
-                                  title="Supprimer définitivement l'élève"
-                                  className="p-1.5 text-red-500 hover:text-red-700 hover:bg-red-50 rounded-lg transition-colors cursor-pointer"
-                                >
-                                  <Trash2 size={16} />
-                                </button>
-                              </div>
-                            ) : (
+                            <div className="flex items-center justify-end gap-1.5">
                               <button
-                                onClick={() => handleOpenArchiveModal(s, 'eleve')}
-                                title="Archiver l'élève"
-                                className="px-2.5 py-1 bg-amber-50 text-amber-800 border border-amber-200 hover:bg-amber-100 rounded-lg transition-colors cursor-pointer text-[11px] font-bold flex items-center gap-1"
+                                type="button"
+                                onClick={() => setModalStudentForBulletin(s)}
+                                title="Générer et exporter le bulletin de notes en PDF"
+                                className="px-2.5 py-1 bg-[#f5f5f5] hover:bg-[#1a1a1a] hover:text-white text-[#1a1a1a] border border-[#e0e0e0] rounded-lg transition-colors cursor-pointer text-[11px] font-bold flex items-center gap-1 shadow-2xs"
                               >
-                                <Archive size={13} /> Archiver
+                                <FileText size={12} /> Bulletin PDF
                               </button>
-                            )}
+                              {s.statut === 'archive' ? (
+                                <>
+                                  <button
+                                    onClick={() => handleRestoreEleve(s)}
+                                    title="Restaurer l'élève dans la liste active"
+                                    className="px-2.5 py-1 bg-emerald-50 text-emerald-700 border border-emerald-200 hover:bg-emerald-100 rounded-lg transition-colors cursor-pointer text-[11px] font-bold flex items-center gap-1"
+                                  >
+                                    <RotateCcw size={13} /> Restaurer
+                                  </button>
+                                  <button
+                                    onClick={() => handleOpenDeleteModal(s, 'eleve')}
+                                    title="Supprimer définitivement l'élève"
+                                    className="p-1.5 text-red-500 hover:text-red-700 hover:bg-red-50 rounded-lg transition-colors cursor-pointer"
+                                  >
+                                    <Trash2 size={16} />
+                                  </button>
+                                </>
+                              ) : (
+                                <button
+                                  onClick={() => handleOpenArchiveModal(s, 'eleve')}
+                                  title="Archiver l'élève"
+                                  className="px-2.5 py-1 bg-amber-50 text-amber-800 border border-amber-200 hover:bg-amber-100 rounded-lg transition-colors cursor-pointer text-[11px] font-bold flex items-center gap-1"
+                                >
+                                  <Archive size={13} /> Archiver
+                                </button>
+                              )}
+                            </div>
                           </td>
                         </tr>
                       ))}
@@ -2188,7 +2242,7 @@ export default function AdminView({ user, onLogout, showToast }: AdminViewProps)
                       }}
                       className="bg-[#1a1a1a] hover:bg-black text-white font-bold py-2.5 px-4 rounded-xl text-xs flex items-center gap-1.5 shadow-sm cursor-pointer uppercase tracking-widest transition-all"
                     >
-                      <Plus size={16} /> Enregistrer un versement
+                      <Plus size={16} /> Encaisser à la caisse
                     </button>
                   </div>
                 </div>
@@ -2277,7 +2331,7 @@ export default function AdminView({ user, onLogout, showToast }: AdminViewProps)
                                   }}
                                   className="px-2.5 py-1.5 rounded-lg bg-[#1a1a1a] hover:bg-black text-white text-[11px] font-bold transition-all cursor-pointer flex items-center gap-1"
                                 >
-                                  <Plus size={13} /> Verser
+                                  <Plus size={13} /> Encaisser
                                 </button>
                               </div>
                             </td>
@@ -2894,12 +2948,19 @@ export default function AdminView({ user, onLogout, showToast }: AdminViewProps)
         </div>
       )}
 
-      {/* NEW PAYMENT / VERSEMENT MODAL */}
+      {/* NEW PAYMENT / CAISSE ENCAISSEMENT MODAL */}
       {isPaiementModalOpen && (
         <div className="fixed inset-0 bg-black/40 z-50 flex items-center justify-center p-4 backdrop-blur-xs">
           <div className="bg-white rounded-[32px] border border-[#e0e0e0] max-w-md w-full p-8 shadow-2xl space-y-5">
-            <h3 className="font-sans font-semibold text-base text-[#1a1a1a] tracking-tight">Enregistrer un versement de scolarité</h3>
-            <p className="text-xs text-[#9e9e9e] font-medium leading-relaxed">Saisissez l'encaissement reçu de la part du parent ou de l'élève.</p>
+            <div className="flex items-center gap-2.5">
+              <div className="w-9 h-9 rounded-xl bg-emerald-100 flex items-center justify-center text-emerald-800 shrink-0">
+                <Building2 size={18} />
+              </div>
+              <div>
+                <h3 className="font-sans font-bold text-base text-[#1a1a1a] tracking-tight">Enregistrer un encaissement à la caisse</h3>
+                <p className="text-xs text-[#9e9e9e] font-medium leading-relaxed">Saisie d'un versement physique au guichet avec délivrance d'un reçu officiel.</p>
+              </div>
+            </div>
             <form onSubmit={handleCreatePaiement} className="space-y-4">
               <div>
                 <label className="block text-[9px] font-bold text-[#9e9e9e] uppercase tracking-widest mb-1">Élève concerné</label>
@@ -2918,7 +2979,7 @@ export default function AdminView({ user, onLogout, showToast }: AdminViewProps)
                 </select>
               </div>
               <div>
-                <label className="block text-[9px] font-bold text-[#9e9e9e] uppercase tracking-widest mb-1">Montant versé (FCFA)</label>
+                <label className="block text-[9px] font-bold text-[#9e9e9e] uppercase tracking-widest mb-1">Montant encaissé à la caisse (FCFA)</label>
                 <input 
                   type="number"
                   value={payMontant}
@@ -2930,23 +2991,21 @@ export default function AdminView({ user, onLogout, showToast }: AdminViewProps)
               </div>
               <div className="grid grid-cols-2 gap-3">
                 <div>
-                  <label className="block text-[9px] font-bold text-[#9e9e9e] uppercase tracking-widest mb-1">Moyen de paiement</label>
+                  <label className="block text-[9px] font-bold text-[#9e9e9e] uppercase tracking-widest mb-1">Mode d'encaissement</label>
                   <select
                     value={payMode}
                     onChange={(e) => setPayMode(e.target.value)}
                     className="w-full px-3 py-2 border border-[#e0e0e0] rounded-xl text-xs bg-white focus:outline-none focus:border-[#1a1a1a] text-[#1a1a1a]"
                   >
-                    <option>Wave</option>
-                    <option>Orange Money</option>
-                    <option>Moov Money</option>
-                    <option>MTN Money</option>
-                    <option>Espèces</option>
+                    <option>Espèces (Caisse)</option>
                     <option>Chèque</option>
-                    <option>Virement</option>
+                    <option>Virement bancaire</option>
+                    <option>Dépôt direct caisse</option>
+                    <option>Autre (Caisse)</option>
                   </select>
                 </div>
                 <div>
-                  <label className="block text-[9px] font-bold text-[#9e9e9e] uppercase tracking-widest mb-1">N° de Reçu / Référence</label>
+                  <label className="block text-[9px] font-bold text-[#9e9e9e] uppercase tracking-widest mb-1">N° de Reçu de Caisse</label>
                   <input 
                     type="text"
                     value={payRecuNo}
@@ -2961,7 +3020,7 @@ export default function AdminView({ user, onLogout, showToast }: AdminViewProps)
                   Annuler
                 </button>
                 <button type="submit" className="px-4 py-2 bg-[#1a1a1a] hover:bg-black text-white rounded-xl text-xs font-bold uppercase tracking-widest transition-all cursor-pointer">
-                  ✓ Enregistrer le versement
+                  ✓ Valider l'encaissement (Caisse)
                 </button>
               </div>
             </form>
@@ -3583,17 +3642,25 @@ export default function AdminView({ user, onLogout, showToast }: AdminViewProps)
               </div>
             </div>
 
-            {/* Receipt History */}
+            {/* Cashier Receipt History */}
             <div className="space-y-3">
-              <h4 className="font-bold text-xs uppercase tracking-wider text-[#9e9e9e]">Historique des Versements & Transactions</h4>
+              <div className="flex items-center justify-between">
+                <h4 className="font-bold text-xs uppercase tracking-wider text-[#9e9e9e] flex items-center gap-1.5">
+                  <Building2 size={13} className="text-gray-500" /> Historique des Versements à la Caisse
+                </h4>
+                <span className="text-[10px] text-gray-500 font-mono">
+                  {selectedPaymentForDetail.historique?.length || 0} versement(s)
+                </span>
+              </div>
               <div className="border border-[#e0e0e0] rounded-2xl overflow-hidden">
                 <table className="w-full text-left border-collapse text-xs">
                   <thead>
                     <tr className="border-b border-[#e0e0e0] text-[10px] font-bold uppercase tracking-widest text-[#9e9e9e] bg-[#f5f5f5]">
                       <th className="py-2.5 px-4">Date</th>
                       <th className="py-2.5 px-4">Montant</th>
-                      <th className="py-2.5 px-4">Mode / Opérateur</th>
-                      <th className="py-2.5 px-4">Référence / Reçu</th>
+                      <th className="py-2.5 px-4">Mode d'encaissement</th>
+                      <th className="py-2.5 px-4">N° Reçu de caisse</th>
+                      <th className="py-2.5 px-4 text-right">Action</th>
                     </tr>
                   </thead>
                   <tbody className="divide-y divide-[#e0e0e0]/60">
@@ -3603,11 +3670,21 @@ export default function AdminView({ user, onLogout, showToast }: AdminViewProps)
                         <td className="py-2.5 px-4 font-extrabold text-emerald-700">{h.montant.toLocaleString('fr-FR')} FCFA</td>
                         <td className="py-2.5 px-4 text-[#1a1a1a] font-semibold">{h.mode}</td>
                         <td className="py-2.5 px-4 font-mono text-[11px] text-sky-800 font-bold">{h.recuNo || h.transactionRef || `REC-${idx + 1}`}</td>
+                        <td className="py-2.5 px-4 text-right">
+                          <button
+                            type="button"
+                            onClick={() => setAdminReceiptToPrint({ h, p: selectedPaymentForDetail })}
+                            className="px-2.5 py-1 rounded-lg border border-[#e0e0e0] hover:bg-gray-100 text-[#1a1a1a] text-[11px] font-bold inline-flex items-center gap-1 transition-colors cursor-pointer"
+                            title="Imprimer ou consulter le reçu de caisse"
+                          >
+                            <Printer size={12} /> Reçu
+                          </button>
+                        </td>
                       </tr>
                     ))}
                     {(!selectedPaymentForDetail.historique || selectedPaymentForDetail.historique.length === 0) && (
                       <tr>
-                        <td colSpan={4} className="py-6 text-center text-gray-400">Aucun versement enregistré.</td>
+                        <td colSpan={5} className="py-6 text-center text-gray-400">Aucun versement enregistré à la caisse.</td>
                       </tr>
                     )}
                   </tbody>
@@ -3625,7 +3702,7 @@ export default function AdminView({ user, onLogout, showToast }: AdminViewProps)
                 }}
                 className="bg-[#1a1a1a] hover:bg-black text-white font-bold py-2.5 px-4 rounded-xl text-xs flex items-center gap-1.5 cursor-pointer"
               >
-                <Plus size={15} /> Saisir un nouveau versement
+                <Plus size={15} /> Encaisser un nouveau versement (Caisse)
               </button>
               <button
                 type="button"
@@ -3637,6 +3714,29 @@ export default function AdminView({ user, onLogout, showToast }: AdminViewProps)
             </div>
           </div>
         </div>
+      )}
+
+      {/* Official Cashier Receipt Modal (Admin / Cashier) */}
+      {adminReceiptToPrint && (
+        <ReceiptModal
+          receipt={adminReceiptToPrint.h}
+          studentName={adminReceiptToPrint.p.eleveNom}
+          studentClass={adminReceiptToPrint.p.classe}
+          totalTuition={adminReceiptToPrint.p.total}
+          totalPaid={adminReceiptToPrint.p.paye}
+          remainingBalance={adminReceiptToPrint.p.solde}
+          onClose={() => setAdminReceiptToPrint(null)}
+        />
+      )}
+
+      {/* Official Student Bulletin PDF / Print Modal */}
+      {modalStudentForBulletin && (
+        <BulletinPrintModal
+          student={modalStudentForBulletin}
+          allStudents={students}
+          onClose={() => setModalStudentForBulletin(null)}
+          showToast={showToast}
+        />
       )}
     </div>
   );

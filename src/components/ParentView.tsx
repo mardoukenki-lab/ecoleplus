@@ -2,8 +2,9 @@ import React, { useState, useEffect } from 'react';
 import { db, handleFirestoreError, OperationType } from '../lib/firebase';
 import { collection, query, where, getDocs, doc, updateDoc, onSnapshot } from 'firebase/firestore';
 import { UserProfile, Eleve, Note, Absence, Paiement, AppNotification, Observation, Tranche } from '../types';
-import { Award, Clock, FileText, CreditCard, Bell, LogOut, ChevronRight, Check, Mail, Smartphone, Volume2, ShieldCheck, Zap, MessageSquare, X, AlertTriangle, ArrowRight } from 'lucide-react';
+import { Award, Clock, FileText, CreditCard, Bell, LogOut, ChevronRight, Check, Mail, Smartphone, Volume2, ShieldCheck, Zap, MessageSquare, X, AlertTriangle, ArrowRight, Building2, Receipt, Printer } from 'lucide-react';
 import { playNotificationChime, requestPushPermission, triggerBrowserPushNotification, initServiceWorker, dispatchParentNotification, triggerEmailNotification } from '../lib/notifications';
+import { requestFcmToken, registerFcmServiceWorker, listenToForegroundFcm, checkFcmSupport } from '../lib/fcm';
 import MessagerieView from './MessagerieView';
 import BulletinView from './BulletinView';
 import EmploiDuTempsView from './EmploiDuTempsView';
@@ -11,7 +12,7 @@ import StudentMonthlyStatsView from './StudentMonthlyStatsView';
 import ExamCalendarView from './ExamCalendarView';
 import { calculateStudentMonthlyStat, printIndividualMonthlyReport, getCurrentYearMonth } from '../lib/studentMonthlyStats';
 import { getTranchesForPaiement, getStudentTuitionStatus } from '../lib/tuitionUtils';
-import MobileMoneyPaymentModal from './MobileMoneyPaymentModal';
+import ReceiptModal from './ReceiptModal';
 import BulletinPrintModal from './BulletinPrintModal';
 import AttendanceSummaryWidget from './AttendanceSummaryWidget';
 
@@ -36,12 +37,36 @@ export default function ParentView({ user, onLogout, showToast }: ParentViewProp
   const [notifications, setNotifications] = useState<AppNotification[]>([]);
   const [observations, setObservations] = useState<Observation[]>([]);
 
-  // Mobile Money Payment Modal State
-  const [isMobileMoneyModalOpen, setIsMobileMoneyModalOpen] = useState(false);
-  const [selectedTrancheForPay, setSelectedTrancheForPay] = useState<Tranche | null>(null);
+  // Cashier Receipt Modal State
+  const [selectedReceiptForPrint, setSelectedReceiptForPrint] = useState<{
+    date: string;
+    montant: number;
+    mode: string;
+    recuNo?: string;
+    trancheNom?: string;
+    transactionRef?: string;
+  } | null>(null);
 
   // Bulletin PDF Modal state
   const [showBulletinModal, setShowBulletinModal] = useState(false);
+
+  // Target context for messaging
+  const [chatTarget, setChatTarget] = useState<{
+    recipientUid?: string;
+    eleveId?: string;
+    eleveNom?: string;
+    eleveClasse?: string;
+  } | null>(null);
+
+  const handleOpenChatForProf = (profUid?: string) => {
+    setChatTarget({
+      recipientUid: profUid,
+      eleveId: selectedKid?.id,
+      eleveNom: selectedKid?.nom,
+      eleveClasse: selectedKid?.classe,
+    });
+    setActiveTab('messagerie');
+  };
 
   // Mobile drawer state
   const [isMobilePlusMenuOpen, setIsMobilePlusMenuOpen] = useState(false);
@@ -50,22 +75,59 @@ export default function ParentView({ user, onLogout, showToast }: ParentViewProp
   const [emailNotifsEnabled, setEmailNotifsEnabled] = useState(true);
   const [selectedEmailSample, setSelectedEmailSample] = useState<{ title: string; subject: string; date: string; contentHtml: string } | null>(null);
 
-  // Initialize Service Worker & check initial push notification permission status
+  // Firebase Cloud Messaging (FCM) state
+  const [fcmToken, setFcmToken] = useState<string | null>(null);
+  const [isFcmLoading, setIsFcmLoading] = useState(false);
+  const [isFcmSupported, setIsFcmSupported] = useState(true);
+
+  // Initialize FCM Service Worker, check support & setup foreground listener
   useEffect(() => {
+    checkFcmSupport().then(supported => setIsFcmSupported(supported));
+    registerFcmServiceWorker();
     initServiceWorker();
+
     if ('Notification' in window) {
       setPushStatus(Notification.permission);
+      if (Notification.permission === 'granted' && user.uid) {
+        requestFcmToken(user.uid, 'parent', user.etablissementId).then(res => {
+          if (res.token) setFcmToken(res.token);
+        });
+      }
     }
-  }, []);
+
+    // Listen to foreground FCM messages
+    const unsubForeground = listenToForegroundFcm((payload) => {
+      console.log('FCM Foreground Alert ParentView:', payload);
+      const title = payload.notification?.title || payload.data?.title || 'AKPANY SCHOOL';
+      const body = payload.notification?.body || payload.data?.body || 'Nouvelle notification';
+      showToast(`⚡ FCM EN DIRECT : ${title} — ${body}`);
+    });
+
+    return () => {
+      if (unsubForeground) unsubForeground();
+    };
+  }, [user.uid, user.etablissementId]);
 
   const handleEnablePush = async () => {
-    const perm = await requestPushPermission(user.uid);
-    setPushStatus(perm);
-    if (perm === 'granted') {
-      showToast('🎉 Web Push activé via Service Worker ! Alertes instantanées configurées pour cet appareil.');
-      triggerBrowserPushNotification('Web Push Activé (Service Worker)', 'Vous recevrez désormais les alertes instantanées de notes, absences et frais en direct.', '🔔');
-    } else {
-      showToast('⚠️ Les notifications Web Push sont refusées sur votre navigateur.');
+    setIsFcmLoading(true);
+    try {
+      const res = await requestFcmToken(user.uid, 'parent', user.etablissementId);
+      setPushStatus(res.permission);
+      if (res.token) {
+        setFcmToken(res.token);
+      }
+      if (res.permission === 'granted') {
+        showToast('🎉 Firebase Cloud Messaging (FCM) activé ! Alertes instantanées configurées pour cet appareil.');
+        playNotificationChime();
+        triggerBrowserPushNotification('Firebase Cloud Messaging Activé', 'Vous recevrez désormais les notifications push en direct dès qu\'une note ou un message est ajouté au dossier de votre enfant.', '🔔');
+      } else {
+        showToast('⚠️ Les notifications Web Push sont refusées sur votre navigateur.');
+      }
+    } catch (e: any) {
+      console.error('Error enabling push:', e);
+      showToast('❌ Erreur lors de l\'activation des notifications.');
+    } finally {
+      setIsFcmLoading(false);
     }
   };
 
@@ -73,6 +135,7 @@ export default function ParentView({ user, onLogout, showToast }: ParentViewProp
   const isInitialNotifs = React.useRef(true);
   const isInitialNotes = React.useRef(true);
   const isInitialObservations = React.useRef(true);
+  const isInitialMessages = React.useRef(true);
 
   // Load children based on codes
   useEffect(() => {
@@ -127,7 +190,14 @@ export default function ParentView({ user, onLogout, showToast }: ParentViewProp
         snap.docChanges().forEach((change) => {
           if (change.type === 'added' || change.type === 'modified') {
             const noteData = change.doc.data() as Note;
-            showToast(`📝 Note actualisée en temps réel pour ${selectedKid.nom} en ${noteData.matiere} !`);
+            const evalText = noteData.devoir1 !== undefined ? `Devoir 1: ${noteData.devoir1}/20` : noteData.devoir2 !== undefined ? `Devoir 2: ${noteData.devoir2}/20` : noteData.compo !== undefined ? `Compo: ${noteData.compo}/20` : 'Consulter le relevé';
+            playNotificationChime();
+            triggerBrowserPushNotification(
+              `📝 NOUVELLE NOTE PUSH (FCM) — ${selectedKid.nom}`,
+              `Note publiée en ${noteData.matiere} (${evalText}).`,
+              '📝'
+            );
+            showToast(`📝 PUSH FCM REÇU : Nouvelle note pour ${selectedKid.nom} en ${noteData.matiere} (${evalText}) !`);
           }
         });
       } else {
@@ -182,6 +252,32 @@ export default function ParentView({ user, onLogout, showToast }: ParentViewProp
       unsubObs();
     };
   }, [selectedKid]);
+
+  // Load incoming messages in real time and trigger instant FCM push notification & sound
+  useEffect(() => {
+    if (!user.uid) return;
+    const qMessages = query(collection(db, 'messages'), where('recipientUid', '==', user.uid));
+    const unsubMsg = onSnapshot(qMessages, (snap) => {
+      if (!isInitialMessages.current) {
+        snap.docChanges().forEach((change) => {
+          if (change.type === 'added') {
+            const msgData = change.doc.data();
+            playNotificationChime();
+            triggerBrowserPushNotification(
+              `💬 NOUVEAU MESSAGE PUSH (FCM) — ${msgData.senderNom}`,
+              msgData.eleveNom ? `Concernant ${msgData.eleveNom} : "${msgData.text}"` : `"${msgData.text}"`,
+              '💬'
+            );
+            showToast(`💬 PUSH FCM REÇU : Nouveau message de ${msgData.senderNom}${msgData.eleveNom ? ` pour ${msgData.eleveNom}` : ''} !`);
+          }
+        });
+      } else {
+        isInitialMessages.current = false;
+      }
+    }, (err) => console.warn('Parent messages listener notice:', err));
+
+    return () => unsubMsg();
+  }, [user.uid]);
 
   const handleKidSwitch = (idx: number) => {
     setSelectedKidIdx(idx);
@@ -367,15 +463,33 @@ export default function ParentView({ user, onLogout, showToast }: ParentViewProp
 
           <div className="flex items-center gap-2">
             {selectedKid && (
-              <button
-                onClick={() => setShowBulletinModal(true)}
-                className="px-2.5 sm:px-3 py-1.5 bg-[#1a1a1a] hover:bg-black text-white text-[10px] sm:text-xs font-bold rounded-xl flex items-center gap-1.5 transition-all cursor-pointer shadow-sm active:scale-95"
-                title="Générer et imprimer le bulletin de notes en version PDF"
-              >
-                <FileText size={13} />
-                <span className="hidden sm:inline">Bulletin PDF</span>
-                <span className="sm:hidden">PDF</span>
-              </button>
+              <>
+                <button
+                  onClick={() => {
+                    setChatTarget({
+                      eleveId: selectedKid.id,
+                      eleveNom: selectedKid.nom,
+                      eleveClasse: selectedKid.classe,
+                    });
+                    setActiveTab('messagerie');
+                  }}
+                  className="px-2.5 sm:px-3 py-1.5 bg-blue-50 hover:bg-blue-600 hover:text-white text-blue-900 text-[10px] sm:text-xs font-bold rounded-xl flex items-center gap-1.5 transition-all cursor-pointer border border-blue-200 shadow-sm active:scale-95"
+                  title="Échanger avec les professeurs de l'élève sur son suivi scolaire"
+                >
+                  <MessageSquare size={13} />
+                  <span className="hidden sm:inline">Suivi Professeurs</span>
+                  <span className="sm:hidden">Message</span>
+                </button>
+                <button
+                  onClick={() => setShowBulletinModal(true)}
+                  className="px-2.5 sm:px-3 py-1.5 bg-[#1a1a1a] hover:bg-black text-white text-[10px] sm:text-xs font-bold rounded-xl flex items-center gap-1.5 transition-all cursor-pointer shadow-sm active:scale-95"
+                  title="Générer et imprimer le bulletin de notes en version PDF"
+                >
+                  <FileText size={13} />
+                  <span className="hidden sm:inline">Bulletin PDF</span>
+                  <span className="sm:hidden">PDF</span>
+                </button>
+              </>
             )}
 
             <button
@@ -395,7 +509,14 @@ export default function ParentView({ user, onLogout, showToast }: ParentViewProp
         {/* WORKSPACE */}
         <main className="flex-1 overflow-y-auto p-4 md:p-8 pb-24 md:pb-8">
           {activeTab === 'messagerie' && (
-            <MessagerieView currentUser={user} showToast={showToast} />
+            <MessagerieView
+              currentUser={user}
+              showToast={showToast}
+              initialRecipientUid={chatTarget?.recipientUid}
+              initialEleveId={chatTarget?.eleveId || selectedKid?.id}
+              initialEleveNom={chatTarget?.eleveNom || selectedKid?.nom}
+              initialEleveClasse={chatTarget?.eleveClasse || selectedKid?.classe}
+            />
           )}
 
           {selectedKid ? (
@@ -408,13 +529,20 @@ export default function ParentView({ user, onLogout, showToast }: ParentViewProp
                   </div>
                   <div>
                     <div className="flex items-center gap-2">
-                      <span className="text-xs font-bold text-white uppercase tracking-wider">Canal d'alertes instantanées Parent</span>
-                      <span className="px-2 py-0.5 rounded-md text-[9px] font-bold bg-emerald-500/20 text-emerald-400 border border-emerald-500/30 flex items-center gap-1">
-                        <span className="w-1.5 h-1.5 rounded-full bg-emerald-400 animate-ping"></span> Actif (Email + Push)
+                      <span className="text-xs font-bold text-white uppercase tracking-wider">Notifications Push Firebase Cloud Messaging (FCM)</span>
+                      <span className={`px-2 py-0.5 rounded-md text-[9px] font-bold border flex items-center gap-1 ${
+                        pushStatus === 'granted'
+                          ? 'bg-emerald-500/20 text-emerald-400 border-emerald-500/30'
+                          : pushStatus === 'denied'
+                          ? 'bg-rose-500/20 text-rose-400 border-rose-500/30'
+                          : 'bg-amber-500/20 text-amber-400 border-amber-500/30'
+                      }`}>
+                        <span className={`w-1.5 h-1.5 rounded-full ${pushStatus === 'granted' ? 'bg-emerald-400 animate-ping' : 'bg-amber-400'}`}></span>
+                        {pushStatus === 'granted' ? 'FCM Connecté (Direct)' : pushStatus === 'denied' ? 'FCM Bloqué' : 'FCM En attente'}
                       </span>
                     </div>
                     <p className="text-xs text-[#9e9e9e] mt-0.5">
-                      Notifications instantanées envoyées à <strong>{user.email}</strong> & sur votre écran lors de chaque saisie de note, absence ou reçu.
+                      Alertes push en temps réel transmises aux parents dès qu'une <strong>note</strong> ou un <strong>message</strong> est publié.
                     </p>
                   </div>
                 </div>
@@ -422,13 +550,22 @@ export default function ParentView({ user, onLogout, showToast }: ParentViewProp
                 {pushStatus !== 'granted' ? (
                   <button
                     onClick={handleEnablePush}
+                    disabled={isFcmLoading}
                     className="px-4 py-2 bg-white text-[#1a1a1a] hover:bg-[#f5f5f5] text-xs font-bold rounded-xl flex items-center gap-2 transition-all cursor-pointer whitespace-nowrap shadow-sm"
                   >
-                    <Smartphone size={14} /> Activer Notif Push Navigateur
+                    <Smartphone size={14} /> {isFcmLoading ? 'Activation...' : 'Activer Notifications Push (FCM)'}
                   </button>
                 ) : (
-                  <div className="px-3 py-1.5 bg-emerald-500/10 text-emerald-400 border border-emerald-500/20 rounded-xl text-[11px] font-bold flex items-center gap-1.5 whitespace-nowrap">
-                    <Check size={14} /> Push Navigateur Actif
+                  <div className="flex items-center gap-2">
+                    <div className="px-3 py-1.5 bg-emerald-500/10 text-emerald-400 border border-emerald-500/20 rounded-xl text-[11px] font-bold flex items-center gap-1.5 whitespace-nowrap">
+                      <Check size={14} /> FCM Push Actif
+                    </div>
+                    <button
+                      onClick={() => setActiveTab('notifications')}
+                      className="px-3 py-1.5 bg-white/10 hover:bg-white/20 text-white rounded-xl text-[11px] font-semibold transition-all cursor-pointer whitespace-nowrap"
+                    >
+                      Gérer / Tester →
+                    </button>
                   </div>
                 )}
               </div>
@@ -852,7 +989,7 @@ export default function ParentView({ user, onLogout, showToast }: ParentViewProp
                 <div className="space-y-6">
                   {paiement ? (
                     <>
-                      {/* Financial Status Header & Quick Mobile Money Action */}
+                      {/* Financial Status Header & Caisse Information */}
                       <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
                         <div className="bg-white rounded-[24px] border border-[#e0e0e0] p-6 space-y-4 shadow-sm h-fit">
                           <div className="flex justify-between items-center">
@@ -889,16 +1026,20 @@ export default function ParentView({ user, onLogout, showToast }: ParentViewProp
                             </div>
                           </div>
 
-                          {paiement.solde > 0 && (
-                            <button
-                              onClick={() => {
-                                setSelectedTrancheForPay(null);
-                                setIsMobileMoneyModalOpen(true);
-                              }}
-                              className="w-full mt-2 bg-emerald-600 hover:bg-emerald-700 text-white font-extrabold py-3 px-4 rounded-xl text-xs transition-all flex items-center justify-center gap-2 cursor-pointer shadow-sm"
-                            >
-                              <Smartphone size={16} /> Payer par Mobile Money (Wave, Orange, MTN)
-                            </button>
+                          {/* Cashier Payment Instruction Notice */}
+                          {paiement.solde > 0 ? (
+                            <div className="w-full mt-3 p-3.5 bg-amber-50/90 border border-amber-200/90 rounded-2xl flex items-start gap-2.5 text-amber-950">
+                              <Building2 className="w-4 h-4 text-amber-700 shrink-0 mt-0.5" />
+                              <div className="text-[11px] leading-relaxed">
+                                <span className="font-bold block text-amber-900 mb-0.5">Règlement à la caisse</span>
+                                Pas de paiement en ligne. Tous les versements de scolarité s'effectuent directement auprès de la caisse / comptabilité de l'établissement (espèces ou chèque). Un reçu officiel vous est systématiquement délivré.
+                              </div>
+                            </div>
+                          ) : (
+                            <div className="w-full mt-3 p-3 bg-emerald-50 border border-emerald-200 rounded-2xl flex items-center gap-2 text-emerald-900 text-xs font-bold">
+                              <ShieldCheck className="w-4 h-4 text-emerald-700 shrink-0" />
+                              Scolarité intégralement soldée à la caisse.
+                            </div>
                           )}
                         </div>
 
@@ -907,7 +1048,7 @@ export default function ParentView({ user, onLogout, showToast }: ParentViewProp
                           <div className="flex justify-between items-center border-b border-[#e0e0e0] pb-3">
                             <div>
                               <h3 className="font-bold text-sm text-[#1a1a1a]">Échéancier de Scolarité par Tranches</h3>
-                              <p className="text-[11px] text-[#9e9e9e]">Détail des échéances, dates limites et paiements mobile money.</p>
+                              <p className="text-[11px] text-[#9e9e9e]">Détail des échéances, dates limites et versements enregistrés à la caisse.</p>
                             </div>
                             <span className="text-xs font-mono font-bold text-[#1a1a1a] bg-gray-100 px-3 py-1 rounded-lg">
                               3 Tranches
@@ -936,12 +1077,12 @@ export default function ParentView({ user, onLogout, showToast }: ParentViewProp
                                         <span className="font-bold text-xs text-[#1a1a1a]">{t.nom}</span>
                                         {t.statut === 'paye' && (
                                           <span className="text-[10px] font-bold px-2 py-0.5 rounded-full bg-emerald-100 text-emerald-800 flex items-center gap-1">
-                                            ✓ Payé
+                                            ✓ Payé à la caisse
                                           </span>
                                         )}
                                         {isOverdue && (
                                           <span className="text-[10px] font-bold px-2 py-0.5 rounded-full bg-red-100 text-red-800 flex items-center gap-1">
-                                            🚨 En retard
+                                            🚨 Échéance dépassée
                                           </span>
                                         )}
                                         {t.statut === 'en_attente' && (
@@ -968,16 +1109,14 @@ export default function ParentView({ user, onLogout, showToast }: ParentViewProp
                                         </div>
                                       </div>
 
-                                      {isUnpaid && (
-                                        <button
-                                          onClick={() => {
-                                            setSelectedTrancheForPay(t);
-                                            setIsMobileMoneyModalOpen(true);
-                                          }}
-                                          className="bg-emerald-600 hover:bg-emerald-700 text-white font-bold px-3 py-2 rounded-xl text-[11px] transition-all flex items-center gap-1.5 cursor-pointer shadow-xs whitespace-nowrap"
-                                        >
-                                          <Smartphone size={14} /> Payer
-                                        </button>
+                                      {isUnpaid ? (
+                                        <span className="text-[10px] font-bold text-gray-600 bg-gray-100 px-3 py-1.5 rounded-xl border border-gray-200 whitespace-nowrap flex items-center gap-1">
+                                          <Building2 size={12} className="text-gray-500" /> À régler à la caisse
+                                        </span>
+                                      ) : (
+                                        <span className="text-[10px] font-bold text-emerald-700 bg-emerald-100 px-3 py-1.5 rounded-xl border border-emerald-200 whitespace-nowrap flex items-center gap-1">
+                                          <Check size={12} /> Réglé à la caisse
+                                        </span>
                                       )}
                                     </div>
                                   </div>
@@ -991,7 +1130,10 @@ export default function ParentView({ user, onLogout, showToast }: ParentViewProp
                       {/* Receipt History */}
                       <div className="bg-white rounded-[24px] border border-[#e0e0e0] shadow-sm overflow-hidden">
                         <div className="px-5 py-4 border-b border-[#e0e0e0] font-bold text-[10px] text-[#9e9e9e] uppercase tracking-widest bg-[#f5f5f5]/30 flex justify-between items-center">
-                          <span>Historique des reçus & transactions</span>
+                          <div className="flex items-center gap-2">
+                            <Receipt className="w-4 h-4 text-gray-500" />
+                            <span>Historique des reçus de caisse délivrés</span>
+                          </div>
                           <span className="text-[10px] text-[#1a1a1a] font-mono">{paiement.historique?.length || 0} versement(s)</span>
                         </div>
                         <table className="w-full text-left border-collapse">
@@ -1000,8 +1142,9 @@ export default function ParentView({ user, onLogout, showToast }: ParentViewProp
                               <th className="py-3 px-4">Date</th>
                               <th className="py-3 px-4">Objet / Tranche</th>
                               <th className="py-3 px-4">Montant Versé</th>
-                              <th className="py-3 px-4">Mode / Opérateur</th>
-                              <th className="py-3 px-4">N° Reçu / Réf.</th>
+                              <th className="py-3 px-4">Mode d'encaissement</th>
+                              <th className="py-3 px-4">N° Reçu de caisse</th>
+                              <th className="py-3 px-4 text-right">Action</th>
                             </tr>
                           </thead>
                           <tbody className="divide-y divide-[#e0e0e0]/60 text-xs">
@@ -1010,15 +1153,24 @@ export default function ParentView({ user, onLogout, showToast }: ParentViewProp
                                 <td className="py-3 px-4 text-[#9e9e9e] font-medium">{h.date}</td>
                                 <td className="py-3 px-4 text-[#1a1a1a] font-bold">{h.trancheNom || 'Scolarité'}</td>
                                 <td className="py-3 px-4 font-extrabold text-emerald-700">{h.montant.toLocaleString('fr-FR')} FCFA</td>
-                                <td className="py-3 px-4 text-[#9e9e9e] font-semibold">{h.mode}</td>
+                                <td className="py-3 px-4 text-gray-700 font-semibold">{h.mode}</td>
                                 <td className="py-3 px-4 font-mono text-[11px] text-sky-800 font-bold">
                                   {h.recuNo || h.transactionRef || `REC-${i + 1}`}
+                                </td>
+                                <td className="py-3 px-4 text-right">
+                                  <button
+                                    onClick={() => setSelectedReceiptForPrint(h)}
+                                    className="px-2.5 py-1 rounded-lg border border-[#e0e0e0] hover:bg-gray-100 text-[#1a1a1a] text-[11px] font-bold inline-flex items-center gap-1 transition-colors cursor-pointer"
+                                    title="Imprimer ou consulter le reçu de caisse"
+                                  >
+                                    <Printer size={12} /> Reçu
+                                  </button>
                                 </td>
                               </tr>
                             ))}
                             {(!paiement.historique || paiement.historique.length === 0) && (
                               <tr>
-                                <td colSpan={5} className="py-8 text-center text-[#9e9e9e]">Aucun paiement effectué pour le moment</td>
+                                <td colSpan={6} className="py-8 text-center text-[#9e9e9e]">Aucun versement enregistré à la caisse pour le moment</td>
                               </tr>
                             )}
                           </tbody>
@@ -1201,13 +1353,13 @@ export default function ParentView({ user, onLogout, showToast }: ParentViewProp
                     </div>
                   </div>
 
-                  {/* Web Push API & Service Worker Status Card */}
+                  {/* Firebase Cloud Messaging (FCM) & Web Push Status Card */}
                   <div className="bg-white rounded-[24px] border border-[#e0e0e0] p-6 shadow-sm space-y-4">
                     <div className="flex flex-wrap justify-between items-center gap-4 border-b border-[#e0e0e0]/60 pb-4">
                       <div>
                         <div className="flex items-center gap-2">
                           <h3 className="font-bold text-xs text-[#1a1a1a] uppercase tracking-wider flex items-center gap-1.5">
-                            <Zap size={14} className="text-[#1a1a1a]" /> Système de Notifications Web Push API (Service Worker v2.0)
+                            <Zap size={14} className="text-[#1a1a1a]" /> Firebase Cloud Messaging (FCM) & Notifications Push Direct
                           </h3>
                           <span className={`text-[10px] font-bold px-2.5 py-0.5 rounded-full border ${
                             pushStatus === 'granted'
@@ -1216,51 +1368,74 @@ export default function ParentView({ user, onLogout, showToast }: ParentViewProp
                               ? 'bg-rose-50 text-rose-800 border-rose-200'
                               : 'bg-amber-50 text-amber-800 border-amber-200'
                           }`}>
-                            {pushStatus === 'granted' ? '● Web Push Activé' : pushStatus === 'denied' ? '✕ Push Bloqué' : '⚠️ En attente d\'autorisation'}
+                            {pushStatus === 'granted' ? '● FCM Connecté & Prêt' : pushStatus === 'denied' ? '✕ Notifications Bloquées' : '⚠️ En attente d\'autorisation'}
                           </span>
                         </div>
                         <p className="text-xs text-[#9e9e9e] mt-1 font-medium">
-                          Alertes instantanées transmises par le navigateur avec signal sonore, vibration et bannières même en arrière-plan.
+                          Les parents reçoivent instantanément une notification push sur leur écran avec signal sonore dès qu'un <strong>nouveau message</strong> ou une <strong>note</strong> est publié(e) pour leur enfant.
                         </p>
+                        {fcmToken && (
+                          <div className="mt-2 text-[10px] font-mono text-[#717171] bg-[#f5f5f5] px-2.5 py-1 rounded-lg inline-block border border-[#e0e0e0]/60">
+                            ID Device FCM : {fcmToken.substring(0, 32)}...
+                          </div>
+                        )}
                       </div>
 
-                      <div className="flex items-center gap-2">
+                      <div className="flex flex-wrap items-center gap-2">
                         {pushStatus !== 'granted' && (
                           <button
                             onClick={handleEnablePush}
+                            disabled={isFcmLoading}
                             className="bg-[#1a1a1a] hover:bg-black text-white px-4 py-2 rounded-xl text-xs font-bold transition-all shadow-sm flex items-center gap-1.5 cursor-pointer"
                           >
-                            <ShieldCheck size={14} /> Activer Web Push
+                            <ShieldCheck size={14} /> {isFcmLoading ? 'Activation...' : 'Activer Push FCM'}
                           </button>
                         )}
                         <button
                           onClick={() => {
+                            const childName = selectedKid ? selectedKid.nom : 'votre enfant';
+                            playNotificationChime();
                             triggerBrowserPushNotification(
-                              'Alerte Critique AKPANY SCHOOL (Test)',
-                              `Test d'envoi d'alerte en direct via Service Worker pour ${user.nom}. Tout fonctionne !`,
-                              '⚡'
+                              `📝 Nouvelle note — ${childName}`,
+                              `Exemple FCM : ${childName} a obtenu 18/20 en Mathématiques (Devoir 1).`,
+                              '📝'
                             );
-                            showToast('⚡ Alerte Web Push de test envoyée au navigateur !');
+                            showToast(`📝 Test FCM Note envoyé pour ${childName} (18/20 en Mathématiques) !`);
                           }}
-                          className="border border-[#e0e0e0] hover:bg-[#f5f5f5] text-[#1a1a1a] px-3.5 py-2 rounded-xl text-xs font-semibold transition-all flex items-center gap-1.5 cursor-pointer"
+                          className="border border-[#e0e0e0] hover:bg-[#f5f5f5] text-[#1a1a1a] px-3 py-2 rounded-xl text-xs font-semibold transition-all flex items-center gap-1.5 cursor-pointer"
                         >
-                          <Volume2 size={14} /> Tester une alerte instantanée
+                          <span>📝</span> Tester Push Note
+                        </button>
+                        <button
+                          onClick={() => {
+                            const childName = selectedKid ? selectedKid.nom : 'votre enfant';
+                            playNotificationChime();
+                            triggerBrowserPushNotification(
+                              `💬 Message enseignant — ${childName}`,
+                              `M. KOUASSI (Professeur Principal) : "Bravo pour les progrès constants ce trimestre !"`,
+                              '💬'
+                            );
+                            showToast(`💬 Test FCM Message enseignant envoyé avec succès !`);
+                          }}
+                          className="border border-[#e0e0e0] hover:bg-[#f5f5f5] text-[#1a1a1a] px-3 py-2 rounded-xl text-xs font-semibold transition-all flex items-center gap-1.5 cursor-pointer"
+                        >
+                          <span>💬</span> Tester Push Message
                         </button>
                       </div>
                     </div>
 
                     <div className="grid grid-cols-1 md:grid-cols-3 gap-3 pt-1 text-[11px] text-[#9e9e9e] font-medium">
                       <div className="flex items-center gap-2 bg-[#f5f5f5]/50 p-2.5 rounded-xl border border-[#e0e0e0]/50">
-                        <span className="text-base">📌</span>
-                        <span><strong>Absences & Retards :</strong> Alertes push immédiates dès l'appel fait par l'enseignant.</span>
-                      </div>
-                      <div className="flex items-center gap-2 bg-[#f5f5f5]/50 p-2.5 rounded-xl border border-[#e0e0e0]/50">
                         <span className="text-base">📝</span>
-                        <span><strong>Nouvelles Notes :</strong> Notifications directes lors de la publication des compositions.</span>
+                        <span><strong>Notes & Devoirs :</strong> Alerte push temps réel dès la validation de la note par le professeur.</span>
                       </div>
                       <div className="flex items-center gap-2 bg-[#f5f5f5]/50 p-2.5 rounded-xl border border-[#e0e0e0]/50">
-                        <span className="text-base">📢</span>
-                        <span><strong>Annonces Générales :</strong> Flash d'information urgent de la direction d'établissement.</span>
+                        <span className="text-base">💬</span>
+                        <span><strong>Messagerie Directe :</strong> Notification instantanée lors de l'envoi d'un message par l'école.</span>
+                      </div>
+                      <div className="flex items-center gap-2 bg-[#f5f5f5]/50 p-2.5 rounded-xl border border-[#e0e0e0]/50">
+                        <span className="text-base">🚨</span>
+                        <span><strong>Assiduité & Retards :</strong> Alerte push immédiate si un retard ou absence est constaté.</span>
                       </div>
                     </div>
                   </div>
@@ -1461,19 +1636,16 @@ export default function ParentView({ user, onLogout, showToast }: ParentViewProp
         </div>
       )}
 
-      {/* Mobile Money Payment Modal */}
-      {isMobileMoneyModalOpen && selectedKid && paiement && (
-        <MobileMoneyPaymentModal
-          paiement={paiement}
-          tranche={selectedTrancheForPay}
+      {/* Official Cashier Receipt Modal */}
+      {selectedReceiptForPrint && selectedKid && paiement && (
+        <ReceiptModal
+          receipt={selectedReceiptForPrint}
           studentName={selectedKid.nom}
-          parentEmail={user.email}
-          userUid={user.uid}
-          onClose={() => {
-            setIsMobileMoneyModalOpen(false);
-            setSelectedTrancheForPay(null);
-          }}
-          showToast={showToast}
+          studentClass={selectedKid.classe}
+          totalTuition={paiement.total}
+          totalPaid={paiement.paye}
+          remainingBalance={paiement.solde}
+          onClose={() => setSelectedReceiptForPrint(null)}
         />
       )}
 

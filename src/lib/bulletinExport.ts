@@ -1,6 +1,6 @@
 import { jsPDF } from 'jspdf';
 import autoTable from 'jspdf-autotable';
-import { Eleve } from '../types';
+import { Eleve, Note, Absence } from '../types';
 
 export interface CalculatedBulletinRow {
   matiere: string;
@@ -67,9 +67,176 @@ export function getSubjectCoefficient(matiere: string): number {
 }
 
 /**
- * Generates and downloads a clean, official PDF of the student report card.
+ * Computes unified bulletin data for a student, calculating all averages,
+ * points, ranking, mentions, and statistics in accordance with official rules.
  */
-export function generateBulletinPDF(data: BulletinExportData): jsPDF {
+export function computeStudentBulletinData(
+  student: Eleve,
+  trimestre: string,
+  allNotes: Note[],
+  allAbsences: Absence[],
+  allStudents: Eleve[] = [],
+  schoolName = 'AKPANY SCHOOL',
+  anneeScolaire = '2025 - 2026'
+): BulletinExportData {
+  // 1. Absences and retards for this student
+  const studentAbsences = allAbsences.filter(
+    (a) => a.eleveId === student.id && (a.statut === 'absent' || a.statut === 'retard')
+  );
+  const absencesCount = studentAbsences.filter((a) => a.statut === 'absent').length;
+  const retardsCount = studentAbsences.filter((a) => a.statut === 'retard').length;
+
+  // 2. Notes for this student & trimester
+  const studentNotes = allNotes.filter(
+    (n) => n.eleveId === student.id && n.trimestre === trimestre
+  );
+
+  // 3. Calculated rows per subject
+  const rows: CalculatedBulletinRow[] = studentNotes.map((n) => {
+    const d1 = n.devoir1 !== undefined && n.devoir1 !== null ? n.devoir1 : null;
+    const d2 = n.devoir2 !== undefined && n.devoir2 !== null ? n.devoir2 : null;
+    const comp = n.compo !== undefined && n.compo !== null ? n.compo : null;
+
+    let pts = 0;
+    let div = 0;
+    if (d1 !== null) {
+      pts += d1;
+      div += 1;
+    }
+    if (d2 !== null) {
+      pts += d2;
+      div += 1;
+    }
+    if (comp !== null) {
+      pts += comp * 2;
+      div += 2;
+    }
+
+    const moyVal = div > 0 ? pts / div : null;
+    const coef = getSubjectCoefficient(n.matiere);
+    const pointsCoefVal = moyVal !== null ? moyVal * coef : null;
+
+    let app = 'En attente';
+    if (moyVal !== null) {
+      if (moyVal >= 16) app = 'Très Bien';
+      else if (moyVal >= 14) app = 'Bien';
+      else if (moyVal >= 12) app = 'Assez Bien';
+      else if (moyVal >= 10) app = 'Passable';
+      else app = 'Insuffisant';
+    }
+
+    return {
+      matiere: n.matiere,
+      coef,
+      devoir1: d1 !== null ? d1 : '—',
+      devoir2: d2 !== null ? d2 : '—',
+      compo: comp !== null ? comp : '—',
+      moyVal,
+      moyStr: moyVal !== null ? `${moyVal.toFixed(2)}/20` : '—',
+      pointsCoefVal,
+      pointsCoefStr: pointsCoefVal !== null ? pointsCoefVal.toFixed(2) : '—',
+      rangMatiere: '—',
+      app
+    };
+  });
+
+  // 4. Overall totals and weighted average
+  let totalCoef = 0;
+  let totalPoints = 0;
+  rows.forEach((r) => {
+    const c = r.coef || 1;
+    if (r.moyVal !== null && r.moyVal !== undefined) {
+      totalCoef += c;
+      totalPoints += r.moyVal * c;
+    }
+  });
+
+  const overallAverageVal = totalCoef > 0 ? totalPoints / totalCoef : null;
+  const overallAverageStr = overallAverageVal !== null ? `${overallAverageVal.toFixed(2)}/20` : '—';
+
+  let overallMention = 'Non calculé';
+  if (overallAverageVal !== null) {
+    if (overallAverageVal >= 16) overallMention = 'EXCELLENT — TABLEAU D\'HONNEUR & FÉLICITATIONS';
+    else if (overallAverageVal >= 14) overallMention = 'TRÈS BIEN — TABLEAU D\'HONNEUR & ENCOURAGEMENTS';
+    else if (overallAverageVal >= 12) overallMention = 'BIEN — TABLEAU D\'HONNEUR';
+    else if (overallAverageVal >= 10) overallMention = 'PASSABLE — PEUT MIEUX FAIRE';
+    else overallMention = 'INSUFFISANT — TRAVAIL ET EFFORT À REVOIR';
+  }
+
+  // 5. Class peer ranking & statistics
+  const classPeers = allStudents.filter((s) => s.classe === student.classe);
+  const classSize = classPeers.length > 0 ? classPeers.length : 1;
+
+  const peerAverages: { studentId: string; avg: number }[] = [];
+  classPeers.forEach((peer) => {
+    const pNotes = allNotes.filter((n) => n.eleveId === peer.id && n.trimestre === trimestre);
+    let pPts = 0;
+    let pCoefs = 0;
+    pNotes.forEach((n) => {
+      const d1 = n.devoir1 !== null && n.devoir1 !== undefined ? n.devoir1 : null;
+      const d2 = n.devoir2 !== null && n.devoir2 !== undefined ? n.devoir2 : null;
+      const comp = n.compo !== null && n.compo !== undefined ? n.compo : null;
+      let sPts = 0;
+      let sDiv = 0;
+      if (d1 !== null) {
+        sPts += d1;
+        sDiv += 1;
+      }
+      if (d2 !== null) {
+        sPts += d2;
+        sDiv += 1;
+      }
+      if (comp !== null) {
+        sPts += comp * 2;
+        sDiv += 2;
+      }
+      if (sDiv > 0) {
+        const sMoy = sPts / sDiv;
+        const c = getSubjectCoefficient(n.matiere);
+        pPts += sMoy * c;
+        pCoefs += c;
+      }
+    });
+    if (pCoefs > 0) {
+      peerAverages.push({ studentId: peer.id, avg: pPts / pCoefs });
+    }
+  });
+
+  peerAverages.sort((a, b) => b.avg - a.avg);
+  const myIndex = peerAverages.findIndex((p) => p.studentId === student.id);
+  const classRank = myIndex !== -1 ? `${myIndex + 1}${myIndex === 0 ? 'er' : 'e'}` : '—';
+  const highestAverage = peerAverages.length > 0 ? `${peerAverages[0].avg.toFixed(2)}/20` : '—';
+  const lowestAverage =
+    peerAverages.length > 0 ? `${peerAverages[peerAverages.length - 1].avg.toFixed(2)}/20` : '—';
+  const classAvgNum =
+    peerAverages.length > 0 ? peerAverages.reduce((acc, p) => acc + p.avg, 0) / peerAverages.length : null;
+  const classAverage = classAvgNum !== null ? `${classAvgNum.toFixed(2)}/20` : '—';
+
+  return {
+    student,
+    trimestre,
+    anneeScolaire,
+    rows,
+    totalCoef: totalCoef > 0 ? totalCoef : rows.length,
+    totalPoints,
+    overallAverageVal,
+    overallAverageStr,
+    overallMention,
+    classRank,
+    classSize,
+    classAverage,
+    highestAverage,
+    lowestAverage,
+    absencesCount,
+    retardsCount,
+    schoolName
+  };
+}
+
+/**
+ * Draws a complete official report card page onto the given jsPDF document.
+ */
+export function renderBulletinPage(doc: jsPDF, data: BulletinExportData): void {
   const {
     student,
     trimestre,
@@ -88,12 +255,6 @@ export function generateBulletinPDF(data: BulletinExportData): jsPDF {
     retardsCount = 0,
     schoolName = 'AKPANY SCHOOL'
   } = data;
-
-  const doc = new jsPDF({
-    orientation: 'portrait',
-    unit: 'mm',
-    format: 'a4'
-  });
 
   const pageWidth = 210;
   const margin = 14;
@@ -120,7 +281,7 @@ export function generateBulletinPDF(data: BulletinExportData): jsPDF {
   doc.setFontSize(7);
   doc.setTextColor(107, 114, 128);
   doc.text(`Édité le : ${new Date().toLocaleDateString('fr-FR')}`, pageWidth - margin, 18, { align: 'right' });
-  doc.text("Portail Officiel : demo.akpanyschool.store", pageWidth - margin, 22, { align: 'right' });
+  doc.text("Portail Numérique : demo.akpanyschool.store", pageWidth - margin, 22, { align: 'right' });
 
   // 2. School & Report Card Banner
   doc.setFillColor(26, 26, 26);
@@ -250,10 +411,10 @@ export function generateBulletinPDF(data: BulletinExportData): jsPDF {
   });
 
   // Get position after table
-  const finalY = (doc as any).lastAutoTable.finalY + 4;
+  const finalY = Math.min((doc as any).lastAutoTable.finalY + 4, 225);
 
   // 5. Summary Statistics Box
-  const summaryHeight = 26;
+  const summaryHeight = 24;
   doc.setFillColor(248, 250, 252);
   doc.setDrawColor(203, 213, 225);
   doc.roundedRect(margin, finalY, contentWidth, summaryHeight, 2, 2, 'FD');
@@ -262,51 +423,51 @@ export function generateBulletinPDF(data: BulletinExportData): jsPDF {
   doc.setFont('helvetica', 'normal');
   doc.setFontSize(8);
   doc.setTextColor(100, 116, 139);
-  doc.text("TOTAL COEFFICIENTS :", margin + 4, finalY + 6);
+  doc.text("TOTAL COEFFICIENTS :", margin + 4, finalY + 5.5);
   doc.setFont('helvetica', 'bold');
   doc.setTextColor(15, 23, 42);
-  doc.text(`${totalCoef}`, margin + 42, finalY + 6);
+  doc.text(`${totalCoef}`, margin + 42, finalY + 5.5);
 
   doc.setFont('helvetica', 'normal');
   doc.setTextColor(100, 116, 139);
-  doc.text("TOTAL POINTS :", margin + 4, finalY + 12);
+  doc.text("TOTAL POINTS :", margin + 4, finalY + 11);
   doc.setFont('helvetica', 'bold');
   doc.setTextColor(15, 23, 42);
-  doc.text(`${totalPoints.toFixed(2)}`, margin + 42, finalY + 12);
+  doc.text(`${totalPoints.toFixed(2)}`, margin + 42, finalY + 11);
 
   doc.setFont('helvetica', 'normal');
   doc.setTextColor(100, 116, 139);
-  doc.text("CLASSE MOYENNE :", margin + 4, finalY + 18);
+  doc.text("CLASSE MOYENNE :", margin + 4, finalY + 16.5);
   doc.setFont('helvetica', 'bold');
   doc.setTextColor(15, 23, 42);
-  doc.text(`${classAverage} (Min: ${lowestAverage} | Max: ${highestAverage})`, margin + 42, finalY + 18);
+  doc.text(`${classAverage} (Min: ${lowestAverage} | Max: ${highestAverage})`, margin + 42, finalY + 16.5);
 
   doc.setFont('helvetica', 'normal');
   doc.setTextColor(100, 116, 139);
-  doc.text("DÉCISION CONSEIL :", margin + 4, finalY + 23);
+  doc.text("DÉCISION DU CONSEIL :", margin + 4, finalY + 21.5);
   doc.setFont('helvetica', 'bold');
   doc.setTextColor(26, 26, 26);
-  doc.text(overallMention, margin + 42, finalY + 23);
+  doc.text(overallMention, margin + 42, finalY + 21.5);
 
-  // Right part: Overall Average & Rank
+  // Right part: Overall Average & Rank badge
   const avgBoxX = pageWidth - margin - 52;
   doc.setFillColor(26, 26, 26);
-  doc.roundedRect(avgBoxX, finalY + 3, 48, 20, 2, 2, 'F');
+  doc.roundedRect(avgBoxX, finalY + 2, 48, 20, 2, 2, 'F');
   doc.setFont('helvetica', 'bold');
   doc.setFontSize(7.5);
   doc.setTextColor(209, 213, 219);
-  doc.text("MOYENNE GÉNÉRALE", avgBoxX + 24, finalY + 8, { align: 'center' });
-  doc.setFontSize(14);
+  doc.text("MOYENNE GÉNÉRALE", avgBoxX + 24, finalY + 7, { align: 'center' });
+  doc.setFontSize(13);
   doc.setTextColor(255, 255, 255);
-  doc.text(overallAverageStr, avgBoxX + 24, finalY + 15, { align: 'center' });
+  doc.text(overallAverageStr, avgBoxX + 24, finalY + 14, { align: 'center' });
   doc.setFontSize(7);
   doc.setTextColor(156, 163, 175);
-  doc.text(`Rang : ${classRank} / ${classSize}`, avgBoxX + 24, finalY + 20, { align: 'center' });
+  doc.text(`Rang : ${classRank} / ${classSize}`, avgBoxX + 24, finalY + 19, { align: 'center' });
 
   // 6. Signatures and Official Stamp Section
-  const sigY = finalY + summaryHeight + 5;
+  const sigY = finalY + summaryHeight + 4;
   const sigBoxWidth = (contentWidth - 6) / 3;
-  const sigHeight = 24;
+  const sigHeight = 22;
 
   // Box 1: Professeur Principal
   doc.setFillColor(255, 255, 255);
@@ -332,7 +493,7 @@ export function generateBulletinPDF(data: BulletinExportData): jsPDF {
   doc.setTextColor(148, 163, 184);
   doc.text("Émargement & Date", margin + sigBoxWidth + 7, sigY + 9);
 
-  // Box 3: Direction / Chef d'Établissement with Official Stamp simulation
+  // Box 3: Direction / Chef d'Établissement with Official Stamp
   const dirBoxX = margin + (sigBoxWidth + 3) * 2;
   doc.roundedRect(dirBoxX, sigY, sigBoxWidth, sigHeight, 2, 2, 'D');
   doc.setFont('helvetica', 'bold');
@@ -347,12 +508,12 @@ export function generateBulletinPDF(data: BulletinExportData): jsPDF {
   // Simulation of official stamp
   doc.setDrawColor(37, 99, 235);
   doc.setFillColor(239, 246, 255);
-  doc.circle(dirBoxX + sigBoxWidth - 10, sigY + 14, 7, 'D');
+  doc.circle(dirBoxX + sigBoxWidth - 10, sigY + 13, 6.5, 'D');
   doc.setFont('helvetica', 'bold');
   doc.setFontSize(5.5);
   doc.setTextColor(37, 99, 235);
-  doc.text("AKPANY", dirBoxX + sigBoxWidth - 10, sigY + 13.5, { align: 'center' });
-  doc.text("SCEAU", dirBoxX + sigBoxWidth - 10, sigY + 16, { align: 'center' });
+  doc.text("AKPANY", dirBoxX + sigBoxWidth - 10, sigY + 12.5, { align: 'center' });
+  doc.text("SCEAU", dirBoxX + sigBoxWidth - 10, sigY + 15, { align: 'center' });
 
   // 7. Footer Notice
   const footerY = 286;
@@ -365,11 +526,63 @@ export function generateBulletinPDF(data: BulletinExportData): jsPDF {
     footerY,
     { align: 'center' }
   );
+}
 
-  // Save the file
-  const safeNom = student.nom.replace(/[^a-zA-Z0-9]/g, '_');
-  const safeTrimestre = trimestre.replace(/[^a-zA-Z0-9]/g, '_');
-  doc.save(`Bulletin_${safeNom}_${safeTrimestre}.pdf`);
+/**
+ * Generates and downloads a clean, official PDF of an individual student report card.
+ */
+export function generateBulletinPDF(data: BulletinExportData, options?: { autoSave?: boolean; filename?: string }): jsPDF {
+  const doc = new jsPDF({
+    orientation: 'portrait',
+    unit: 'mm',
+    format: 'a4'
+  });
+
+  renderBulletinPage(doc, data);
+
+  if (options?.autoSave !== false) {
+    const safeNom = data.student.nom.replace(/[^a-zA-Z0-9]/g, '_');
+    const safeTrimestre = data.trimestre.replace(/[^a-zA-Z0-9]/g, '_');
+    const filename = options?.filename || `Bulletin_${safeNom}_${safeTrimestre}.pdf`;
+    doc.save(filename);
+  }
+
+  return doc;
+}
+
+/**
+ * Generates and downloads a consolidated, multi-page official PDF containing
+ * report cards for all students of a class.
+ */
+export function generateClassBulletinsPDF(
+  dataList: BulletinExportData[],
+  options: { classe?: string; trimestre?: string; schoolName?: string; filename?: string } = {}
+): jsPDF {
+  const doc = new jsPDF({
+    orientation: 'portrait',
+    unit: 'mm',
+    format: 'a4'
+  });
+
+  if (dataList.length === 0) {
+    doc.setFont('helvetica', 'bold');
+    doc.setFontSize(12);
+    doc.text('Aucun bulletin disponible pour cette sélection.', 20, 30);
+    doc.save('Bulletins_Vide.pdf');
+    return doc;
+  }
+
+  dataList.forEach((data, index) => {
+    if (index > 0) {
+      doc.addPage('a4', 'portrait');
+    }
+    renderBulletinPage(doc, data);
+  });
+
+  const safeClasse = (options.classe || dataList[0]?.student.classe || 'Classe').replace(/[^a-zA-Z0-9]/g, '_');
+  const safeTrimestre = (options.trimestre || dataList[0]?.trimestre || 'Trimestre').replace(/[^a-zA-Z0-9]/g, '_');
+  const filename = options.filename || `Bulletins_Classe_${safeClasse}_${safeTrimestre}.pdf`;
+  doc.save(filename);
 
   return doc;
 }

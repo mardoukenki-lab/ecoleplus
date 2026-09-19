@@ -18,8 +18,9 @@ import {
 } from 'lucide-react';
 import {
   generateBulletinPDF,
+  generateClassBulletinsPDF,
   printBulletinViaIframe,
-  getSubjectCoefficient,
+  computeStudentBulletinData,
   CalculatedBulletinRow,
   BulletinExportData
 } from '../lib/bulletinExport';
@@ -39,6 +40,7 @@ export default function BulletinView({ currentUser, studentsList, showToast }: B
   const [allNotes, setAllNotes] = useState<Note[]>([]);
   const [allAbsences, setAllAbsences] = useState<Absence[]>([]);
   const [isGeneratingPDF, setIsGeneratingPDF] = useState(false);
+  const [isExportingClassPDF, setIsExportingClassPDF] = useState(false);
   const [showPrintModal, setShowPrintModal] = useState(false);
 
   // Extract distinct classes
@@ -96,163 +98,29 @@ export default function BulletinView({ currentUser, studentsList, showToast }: B
 
   const selectedStudent = studentsList.find((s) => s.id === selectedStudentId);
 
-  // Filter student absences
-  const studentAbsences = allAbsences.filter(
-    (a) => a.eleveId === selectedStudentId && (a.statut === 'absent' || a.statut === 'retard')
-  );
-  const absencesCount = studentAbsences.filter((a) => a.statut === 'absent').length;
-  const retardsCount = studentAbsences.filter((a) => a.statut === 'retard').length;
+  // Unified Bulletin Data for the currently selected student
+  const exportData: BulletinExportData | null = useMemo(() => {
+    if (!selectedStudent) return null;
+    return computeStudentBulletinData(
+      selectedStudent,
+      selectedTrimestre,
+      allNotes,
+      allAbsences,
+      studentsList,
+      'AKPANY SCHOOL'
+    );
+  }, [selectedStudent, selectedTrimestre, allNotes, allAbsences, studentsList]);
 
-  // Filter notes for the selected student & trimestre
-  const studentNotes = allNotes.filter(
-    (n) => n.eleveId === selectedStudentId && n.trimestre === selectedTrimestre
-  );
-
-  // Calculate subject rows with coefficients
-  const calculatedRows: CalculatedBulletinRow[] = studentNotes.map((n) => {
-    const d1 = n.devoir1 !== undefined && n.devoir1 !== null ? n.devoir1 : null;
-    const d2 = n.devoir2 !== undefined && n.devoir2 !== null ? n.devoir2 : null;
-    const comp = n.compo !== undefined && n.compo !== null ? n.compo : null;
-
-    let totalPoints = 0;
-    let totalCoef = 0;
-
-    if (d1 !== null) {
-      totalPoints += d1;
-      totalCoef += 1;
-    }
-    if (d2 !== null) {
-      totalPoints += d2;
-      totalCoef += 1;
-    }
-    if (comp !== null) {
-      totalPoints += comp * 2;
-      totalCoef += 2;
-    }
-
-    const moyVal = totalCoef > 0 ? totalPoints / totalCoef : null;
-    const coef = getSubjectCoefficient(n.matiere);
-    const pointsCoefVal = moyVal !== null ? moyVal * coef : null;
-
-    let app = 'En attente';
-    if (moyVal !== null) {
-      if (moyVal >= 16) app = 'Très Bien';
-      else if (moyVal >= 14) app = 'Bien';
-      else if (moyVal >= 12) app = 'Assez Bien';
-      else if (moyVal >= 10) app = 'Passable';
-      else app = 'Insuffisant';
-    }
-
-    return {
-      matiere: n.matiere,
-      coef,
-      devoir1: d1 !== null ? d1 : '—',
-      devoir2: d2 !== null ? d2 : '—',
-      compo: comp !== null ? comp : '—',
-      moyVal,
-      moyStr: moyVal !== null ? `${moyVal.toFixed(2)}/20` : '—',
-      pointsCoefVal,
-      pointsCoefStr: pointsCoefVal !== null ? pointsCoefVal.toFixed(2) : '—',
-      rangMatiere: '—',
-      app
-    };
-  });
-
-  // Calculate overall weighted average
-  let totalCoef = 0;
-  let totalPoints = 0;
-  calculatedRows.forEach((r) => {
-    const c = r.coef || 1;
-    if (r.moyVal !== null && r.moyVal !== undefined) {
-      totalCoef += c;
-      totalPoints += r.moyVal * c;
-    }
-  });
-
-  const overallAverageVal = totalCoef > 0 ? totalPoints / totalCoef : null;
-  const overallAverageStr = overallAverageVal !== null ? `${overallAverageVal.toFixed(2)}/20` : '—';
-
-  let overallMention = 'Non calculé';
-  if (overallAverageVal !== null) {
-    if (overallAverageVal >= 16) overallMention = 'EXCELLENT — TABLEAU D\'HONNEUR & FÉLICITATIONS';
-    else if (overallAverageVal >= 14) overallMention = 'TRÈS BIEN — TABLEAU D\'HONNEUR & ENCOURAGEMENTS';
-    else if (overallAverageVal >= 12) overallMention = 'BIEN — TABLEAU D\'HONNEUR';
-    else if (overallAverageVal >= 10) overallMention = 'PASSABLE — PEUT MIEUX FAIRE';
-    else overallMention = 'INSUFFISANT — TRAVAIL ET EFFORT À REVOIR';
-  }
-
-  // Calculate peer averages for rank and stats
-  const classPeers = selectedStudent
-    ? studentsList.filter((s) => s.classe === selectedStudent.classe)
-    : [];
-  const classSize = classPeers.length > 0 ? classPeers.length : 1;
-
-  const peerAverages: { studentId: string; avg: number }[] = [];
-  classPeers.forEach((peer) => {
-    const pNotes = allNotes.filter((n) => n.eleveId === peer.id && n.trimestre === selectedTrimestre);
-    let pPts = 0;
-    let pCoefs = 0;
-    pNotes.forEach((n) => {
-      const d1 = n.devoir1 !== null && n.devoir1 !== undefined ? n.devoir1 : null;
-      const d2 = n.devoir2 !== null && n.devoir2 !== undefined ? n.devoir2 : null;
-      const comp = n.compo !== null && n.compo !== undefined ? n.compo : null;
-      let sPts = 0;
-      let sDiv = 0;
-      if (d1 !== null) {
-        sPts += d1;
-        sDiv += 1;
-      }
-      if (d2 !== null) {
-        sPts += d2;
-        sDiv += 1;
-      }
-      if (comp !== null) {
-        sPts += comp * 2;
-        sDiv += 2;
-      }
-      if (sDiv > 0) {
-        const sMoy = sPts / sDiv;
-        const c = getSubjectCoefficient(n.matiere);
-        pPts += sMoy * c;
-        pCoefs += c;
-      }
-    });
-    if (pCoefs > 0) {
-      peerAverages.push({ studentId: peer.id, avg: pPts / pCoefs });
-    }
-  });
-
-  peerAverages.sort((a, b) => b.avg - a.avg);
-  const myIndex = selectedStudent ? peerAverages.findIndex((p) => p.studentId === selectedStudent.id) : -1;
-  const classRank = myIndex !== -1 ? `${myIndex + 1}${myIndex === 0 ? 'er' : 'e'}` : '—';
-  const highestAverage = peerAverages.length > 0 ? `${peerAverages[0].avg.toFixed(2)}/20` : '—';
-  const lowestAverage =
-    peerAverages.length > 0 ? `${peerAverages[peerAverages.length - 1].avg.toFixed(2)}/20` : '—';
-  const classAvgNum =
-    peerAverages.length > 0 ? peerAverages.reduce((acc, p) => acc + p.avg, 0) / peerAverages.length : null;
-  const classAverage = classAvgNum !== null ? `${classAvgNum.toFixed(2)}/20` : '—';
-
-  const exportData: BulletinExportData | null = selectedStudent
-    ? {
-        student: selectedStudent,
-        trimestre: selectedTrimestre,
-        anneeScolaire: '2025 - 2026',
-        rows: calculatedRows,
-        totalCoef: totalCoef > 0 ? totalCoef : calculatedRows.length,
-        totalPoints,
-        overallAverageVal,
-        overallAverageStr,
-        overallMention,
-        classRank,
-        classSize,
-        classAverage,
-        highestAverage,
-        lowestAverage,
-        absencesCount,
-        retardsCount,
-        schoolName: 'AKPANY SCHOOL'
-      }
-    : null;
+  const calculatedRows = exportData?.rows || [];
+  const totalCoef = exportData?.totalCoef || 0;
+  const totalPoints = exportData?.totalPoints || 0;
+  const overallAverageStr = exportData?.overallAverageStr || '—';
+  const overallMention = exportData?.overallMention || 'Non calculé';
+  const classRank = exportData?.classRank || '—';
+  const classSize = exportData?.classSize || 1;
+  const classAverage = exportData?.classAverage || '—';
+  const absencesCount = exportData?.absencesCount || 0;
+  const retardsCount = exportData?.retardsCount || 0;
 
   // Actions
   const handleExportPDF = () => {
@@ -269,6 +137,53 @@ export default function BulletinView({ currentUser, studentsList, showToast }: B
       showToast('❌ Erreur lors de la génération du bulletin PDF.');
     } finally {
       setIsGeneratingPDF(false);
+    }
+  };
+
+  const handleExportClassPDF = async () => {
+    if (filteredStudents.length === 0) {
+      showToast('⚠️ Aucun élève trouvé pour cette sélection.');
+      return;
+    }
+
+    try {
+      setIsExportingClassPDF(true);
+      const targetClass = selectedClassFilter !== 'all' ? selectedClassFilter : (filteredStudents[0]?.classe || 'Toutes_Classes');
+      showToast(`⏳ Préparation de l'exportation PDF pour ${filteredStudents.length} élèves...`);
+
+      // Yield for UI spinner
+      await new Promise((resolve) => setTimeout(resolve, 60));
+
+      const classDataList: BulletinExportData[] = filteredStudents.map((s) =>
+        computeStudentBulletinData(s, selectedTrimestre, allNotes, allAbsences, studentsList, 'AKPANY SCHOOL')
+      );
+
+      generateClassBulletinsPDF(classDataList, {
+        classe: targetClass,
+        trimestre: selectedTrimestre,
+        schoolName: 'AKPANY SCHOOL'
+      });
+
+      showToast(`✅ Livret PDF officiel (${classDataList.length} bulletins) généré avec succès pour ${targetClass} !`);
+    } catch (err) {
+      console.error('Batch class PDF error:', err);
+      showToast('❌ Erreur lors de la création du livret PDF de la classe.');
+    } finally {
+      setIsExportingClassPDF(false);
+    }
+  };
+
+  const handlePrint = () => {
+    if (!selectedStudent || !exportData) {
+      showToast('⚠️ Veuillez sélectionner un élève valide.');
+      return;
+    }
+    try {
+      printBulletinViaIframe(exportData);
+      showToast(`🖨️ Préparation de l'impression du bulletin pour ${selectedStudent.nom}...`);
+    } catch (err) {
+      console.error('Print error:', err);
+      showToast('❌ Erreur lors du lancement de l\'impression.');
     }
   };
 
@@ -324,6 +239,20 @@ export default function BulletinView({ currentUser, studentsList, showToast }: B
               </div>
             )}
 
+            {/* Quick search input */}
+            <div>
+              <label className="block text-[10px] font-bold text-[#9e9e9e] uppercase tracking-widest mb-1 flex items-center gap-1">
+                <Search size={10} /> Recherche
+              </label>
+              <input
+                type="text"
+                placeholder="Nom ou code..."
+                value={searchQuery}
+                onChange={(e) => setSearchQuery(e.target.value)}
+                className="px-3 py-2 border border-[#e0e0e0] rounded-xl text-xs font-bold bg-white text-[#1a1a1a] focus:outline-none focus:border-[#1a1a1a] w-32 sm:w-40"
+              />
+            </div>
+
             {/* Student Selector */}
             <div className="flex-1 min-w-[200px]">
               <label className="block text-[10px] font-bold text-[#9e9e9e] uppercase tracking-widest mb-1">
@@ -362,6 +291,17 @@ export default function BulletinView({ currentUser, studentsList, showToast }: B
 
           {/* Action Buttons */}
           <div className="flex items-center gap-2.5 flex-wrap">
+            {/* Batch class export for administrators and teachers */}
+            <button
+              onClick={handleExportClassPDF}
+              disabled={isExportingClassPDF || filteredStudents.length === 0}
+              className="bg-blue-600 hover:bg-blue-700 text-white font-bold py-2.5 px-4 rounded-xl text-xs flex items-center gap-2 cursor-pointer uppercase tracking-widest transition-all shadow-sm active:scale-95 disabled:opacity-50"
+              title={`Télécharger le livret PDF officiel regroupant les bulletins de toute la classe (${filteredStudents.length} élèves)`}
+            >
+              <FileText size={15} />
+              {isExportingClassPDF ? 'Exportation...' : `Exporter la classe (PDF)`}
+            </button>
+
             <button
               onClick={() => setShowPrintModal(true)}
               className="bg-[#f5f5f5] hover:bg-[#e0e0e0] text-[#1a1a1a] font-bold py-2.5 px-4 rounded-xl text-xs flex items-center gap-2 cursor-pointer uppercase tracking-widest transition-all border border-[#e0e0e0] active:scale-95"
@@ -373,6 +313,7 @@ export default function BulletinView({ currentUser, studentsList, showToast }: B
               onClick={handleExportPDF}
               disabled={isGeneratingPDF || !selectedStudent}
               className="bg-[#1a1a1a] hover:bg-black text-white font-bold py-2.5 px-5 rounded-xl text-xs flex items-center gap-2 cursor-pointer uppercase tracking-widest transition-all shadow-sm active:scale-95 disabled:opacity-50"
+              title="Télécharger le bulletin individuel de l'élève en PDF"
             >
               <Download size={15} />
               {isGeneratingPDF ? 'Génération...' : 'Télécharger PDF'}

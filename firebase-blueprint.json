@@ -452,6 +452,105 @@
         }
       },
       "required": ["id", "titre", "type", "classes", "dateDebut", "publie", "createdAt"]
+    },
+    "messages": {
+      "title": "Message",
+      "description": "Represents an internal chat message between teachers, parents, and administration for student tracking.",
+      "type": "object",
+      "properties": {
+        "id": {
+          "type": "string",
+          "description": "Message unique identifier."
+        },
+        "etablissementId": {
+          "type": "string",
+          "description": "Multi-tenant establishment identifier."
+        },
+        "senderUid": {
+          "type": "string",
+          "description": "UID of the sender."
+        },
+        "senderNom": {
+          "type": "string",
+          "description": "Display name of sender."
+        },
+        "senderRole": {
+          "type": "string",
+          "enum": ["admin", "prof", "parent"],
+          "description": "Role of the sender."
+        },
+        "recipientUid": {
+          "type": "string",
+          "description": "UID of the recipient or channel ID."
+        },
+        "recipientNom": {
+          "type": "string",
+          "description": "Display name of recipient."
+        },
+        "text": {
+          "type": "string",
+          "description": "Message content."
+        },
+        "eleveId": {
+          "type": "string",
+          "description": "ID of the student concerned by the exchange."
+        },
+        "eleveNom": {
+          "type": "string",
+          "description": "Name of the student concerned."
+        },
+        "eleveClasse": {
+          "type": "string",
+          "description": "Class of the student concerned."
+        },
+        "sujet": {
+          "type": "string",
+          "description": "Topic or category of the exchange."
+        },
+        "createdAt": {
+          "type": "string",
+          "format": "date-time",
+          "description": "Creation timestamp."
+        }
+      },
+      "required": ["id", "senderUid", "senderNom", "senderRole", "recipientUid", "text", "createdAt"]
+    },
+    "fcm_tokens": {
+      "title": "FcmToken",
+      "description": "Stores push notification registration tokens for user devices (Firebase Cloud Messaging).",
+      "type": "object",
+      "properties": {
+        "id": {
+          "type": "string",
+          "description": "Unique token identifier or token hash."
+        },
+        "token": {
+          "type": "string",
+          "description": "FCM registration token."
+        },
+        "userId": {
+          "type": "string",
+          "description": "User UID."
+        },
+        "userRole": {
+          "type": "string",
+          "description": "Role of user (parent, prof, admin)."
+        },
+        "etablissementId": {
+          "type": "string",
+          "description": "Multi-tenant establishment ID."
+        },
+        "deviceInfo": {
+          "type": "string",
+          "description": "Browser / OS description."
+        },
+        "updatedAt": {
+          "type": "string",
+          "format": "date-time",
+          "description": "Last update timestamp."
+        }
+      },
+      "required": ["id", "token", "userId", "updatedAt"]
     }
   },
   "firestore": {
@@ -490,6 +589,14 @@
     "examens/{examenId}": {
       "schema": { "$ref": "examens" },
       "description": "School examination and test dates calendar."
+    },
+    "messages/{messageId}": {
+      "schema": { "$ref": "messages" },
+      "description": "Internal messages exchanged between teachers and parents on student tracking."
+    },
+    "fcm_tokens/{tokenId}": {
+      "schema": { "$ref": "fcm_tokens" },
+      "description": "Registered FCM push tokens per device."
     }
   }
 }

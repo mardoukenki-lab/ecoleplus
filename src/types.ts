@@ -195,6 +195,11 @@ export interface ChatMessage {
   recipientNom: string;
   text: string;
   createdAt: string;
+  eleveId?: string;
+  eleveNom?: string;
+  eleveClasse?: string;
+  sujet?: string;
+  etablissementId?: string;
 }
 
 export interface ScheduleSlot {

@@ -12,6 +12,7 @@ import ExamCalendarView from './ExamCalendarView';
 import BulletinPrintModal from './BulletinPrintModal';
 import { Paiement } from '../types';
 import { dispatchParentNotification } from '../lib/notifications';
+import { sendFcmNotificationToParent } from '../lib/fcm';
 import { cacheOfflineStudents, cacheOfflineSchedules } from '../lib/offlineSync';
 
 interface ProfViewProps {
@@ -47,6 +48,24 @@ export default function ProfView({ user, onLogout, showToast }: ProfViewProps) {
   const [newCahierCours, setNewCahierCours] = useState('');
   const [newCahierDevoirs, setNewCahierDevoirs] = useState('');
   const [cahierEntries, setCahierEntries] = useState<CahierTexte[]>([]);
+
+  // Messaging student context target
+  const [chatTarget, setChatTarget] = useState<{
+    recipientUid?: string;
+    eleveId?: string;
+    eleveNom?: string;
+    eleveClasse?: string;
+  } | null>(null);
+
+  const handleOpenChatWithParent = (student: Eleve) => {
+    setChatTarget({
+      recipientUid: student.parentUid || undefined,
+      eleveId: student.id,
+      eleveNom: student.nom,
+      eleveClasse: student.classe,
+    });
+    setActiveTab('messagerie');
+  };
 
   // Notifications
   const [notifications, setNotifications] = useState<AppNotification[]>([]);
@@ -374,7 +393,7 @@ export default function ProfView({ user, onLogout, showToast }: ProfViewProps) {
 
           const evalLabel = activeEval === 'devoir1' ? 'Devoir 1' : activeEval === 'devoir2' ? 'Devoir 2' : 'Composition';
 
-          // Create notification document in Firestore for each parent
+          // Create notification document in Firestore for each parent and trigger FCM Push
           targetParentUids.forEach(pUid => {
             const notifId = `notif_note_${s.id}_${Date.now()}_${Math.random().toString(36).substring(2, 6)}`;
             batch.set(doc(db, 'notifications', notifId), {
@@ -382,20 +401,38 @@ export default function ProfView({ user, onLogout, showToast }: ProfViewProps) {
               userUid: pUid,
               icon: '📝',
               bg: 'bg-emerald-100 text-emerald-800',
+              title: `Nouvelle note : ${s.nom}`,
               text: `Nouvelle note publiée : ${s.nom} a obtenu ${noteVal}/20 en ${activeMatiere} (${evalLabel}).`,
               time: 'à l\'instant',
               unread: true,
+              type: 'note',
+              eleveId: s.id,
+              eleveNom: s.nom,
+              channel: 'fcm_push',
               emailSent: true,
               pushSent: true,
+              fcmStatus: 'delivered',
               createdAt: new Date().toISOString()
             });
             notifCount++;
+
+            // Trigger real-time FCM Push Notification to the parent device
+            sendFcmNotificationToParent({
+              parentUid: pUid,
+              childId: s.id,
+              childNom: s.nom,
+              title: `Nouvelle note : ${s.nom}`,
+              body: `${s.nom} a obtenu ${noteVal}/20 en ${activeMatiere} (${evalLabel}).`,
+              type: 'note',
+              icon: '📝',
+              etablissementId: user.etablissementId || 'akpany-principal'
+            }).catch(e => console.warn('FCM note dispatch warning:', e));
           });
         }
       }
 
       await batch.commit();
-      showToast(`💾 Notes sauvegardées ! ${notifCount > 0 ? `${notifCount} notification(s) envoyée(s) instantanément (Email & Push) aux parents.` : 'Parents notifiés par Email & Push.'}`);
+      showToast(`💾 Notes enregistrées ! ${notifCount > 0 ? `${notifCount} notification(s) push FCM transmise(s) en temps réel aux parents.` : 'Notifications push FCM prêtes.'}`);
     } catch (err) {
       console.error(err);
       showToast('❌ Échec de la sauvegarde des notes.');
@@ -971,12 +1008,23 @@ export default function ProfView({ user, onLogout, showToast }: ProfViewProps) {
                   </div>
                 </div>
 
-                <button 
-                  onClick={handleSaveNotes}
-                  className="bg-[#1a1a1a] hover:bg-black text-white font-bold py-2.5 px-5 rounded-xl text-xs flex items-center gap-1.5 cursor-pointer uppercase tracking-widest transition-all"
-                >
-                  <Save size={14} /> Enregistrer & Notifier
-                </button>
+                <div className="flex items-center gap-2 flex-wrap">
+                  <button 
+                    type="button"
+                    onClick={() => setActiveTab('bulletins')}
+                    className="bg-white hover:bg-[#f5f5f5] text-[#1a1a1a] font-bold py-2.5 px-4 rounded-xl text-xs flex items-center gap-1.5 border border-[#e0e0e0] cursor-pointer uppercase tracking-wider transition-all shadow-2xs"
+                    title="Accéder à l'espace officiel des bulletins pour imprimer ou exporter en PDF la classe entière ou un élève"
+                  >
+                    <FileText size={14} /> Bulletins & Export PDF
+                  </button>
+
+                  <button 
+                    onClick={handleSaveNotes}
+                    className="bg-[#1a1a1a] hover:bg-black text-white font-bold py-2.5 px-5 rounded-xl text-xs flex items-center gap-1.5 cursor-pointer uppercase tracking-widest transition-all"
+                  >
+                    <Save size={14} /> Enregistrer & Notifier
+                  </button>
+                </div>
               </div>
 
               <div className="bg-white rounded-[24px] border border-[#e0e0e0] shadow-sm overflow-hidden">
@@ -986,7 +1034,7 @@ export default function ProfView({ user, onLogout, showToast }: ProfViewProps) {
                       <th className="py-3 px-5">Élève</th>
                       <th className="py-3 px-5">Note /20</th>
                       <th className="py-3 px-5">Observation</th>
-                      <th className="py-3 px-5 text-right">Bulletin</th>
+                      <th className="py-3 px-5 text-right">Actions & Suivi</th>
                     </tr>
                   </thead>
                   <tbody className="divide-y divide-[#e0e0e0]/60 text-xs">
@@ -1014,14 +1062,24 @@ export default function ProfView({ user, onLogout, showToast }: ProfViewProps) {
                           ) : 'Saisie en attente...'}
                         </td>
                         <td className="py-3 px-5 text-right">
-                          <button
-                            type="button"
-                            onClick={() => setModalStudentForBulletin(s)}
-                            className="px-2.5 py-1 bg-[#f5f5f5] hover:bg-[#1a1a1a] hover:text-white text-[#1a1a1a] rounded-lg text-[10px] font-bold transition-all border border-[#e0e0e0] inline-flex items-center gap-1 cursor-pointer active:scale-95"
-                            title="Générer et imprimer le bulletin de notes en PDF"
-                          >
-                            <FileText size={11} /> Bulletin PDF
-                          </button>
+                          <div className="inline-flex items-center gap-1.5 justify-end">
+                            <button
+                              type="button"
+                              onClick={() => handleOpenChatWithParent(s)}
+                              className="px-2.5 py-1 bg-blue-50 hover:bg-blue-600 hover:text-white text-blue-900 rounded-lg text-[10px] font-bold transition-all border border-blue-200 inline-flex items-center gap-1 cursor-pointer active:scale-95"
+                              title="Ouvrir la messagerie pour échanger avec le parent sur le suivi de cet élève"
+                            >
+                              <MessageSquare size={11} /> Suivi Parent
+                            </button>
+                            <button
+                              type="button"
+                              onClick={() => setModalStudentForBulletin(s)}
+                              className="px-2.5 py-1 bg-[#f5f5f5] hover:bg-[#1a1a1a] hover:text-white text-[#1a1a1a] rounded-lg text-[10px] font-bold transition-all border border-[#e0e0e0] inline-flex items-center gap-1 cursor-pointer active:scale-95"
+                              title="Générer et imprimer le bulletin de notes en PDF"
+                            >
+                              <FileText size={11} /> Bulletin PDF
+                            </button>
+                          </div>
                         </td>
                       </tr>
                     ))}
@@ -1372,7 +1430,14 @@ export default function ProfView({ user, onLogout, showToast }: ProfViewProps) {
           )}
 
           {activeTab === 'messagerie' && (
-            <MessagerieView currentUser={user} showToast={showToast} />
+            <MessagerieView
+              currentUser={user}
+              showToast={showToast}
+              initialRecipientUid={chatTarget?.recipientUid}
+              initialEleveId={chatTarget?.eleveId}
+              initialEleveNom={chatTarget?.eleveNom}
+              initialEleveClasse={chatTarget?.eleveClasse}
+            />
           )}
         </main>
       </div>

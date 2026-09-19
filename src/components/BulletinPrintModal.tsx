@@ -5,7 +5,7 @@ import { Eleve, Note, Absence } from '../types';
 import {
   generateBulletinPDF,
   printBulletinViaIframe,
-  getSubjectCoefficient,
+  computeStudentBulletinData,
   CalculatedBulletinRow,
   BulletinExportData
 } from '../lib/bulletinExport';
@@ -59,160 +59,28 @@ export default function BulletinPrintModal({
     };
   }, []);
 
-  // Filter student notes for selected trimester
-  const studentNotes = notes.filter(
-    (n) => n.eleveId === student.id && n.trimestre === selectedTrimestre
-  );
-
-  // Filter student absences
-  const studentAbsences = absences.filter(
-    (a) => a.eleveId === student.id && (a.statut === 'absent' || a.statut === 'retard')
-  );
-  const absencesCount = studentAbsences.filter((a) => a.statut === 'absent').length;
-  const retardsCount = studentAbsences.filter((a) => a.statut === 'retard').length;
-
-  // Find class peers for ranking
-  const classPeers = allStudents.filter((s) => s.classe === student.classe);
-  const classSize = classPeers.length > 0 ? classPeers.length : 1;
-
-  // Calculate subject rows
-  const calculatedRows: CalculatedBulletinRow[] = studentNotes.map((n) => {
-    const d1 = n.devoir1 !== undefined && n.devoir1 !== null ? n.devoir1 : null;
-    const d2 = n.devoir2 !== undefined && n.devoir2 !== null ? n.devoir2 : null;
-    const comp = n.compo !== undefined && n.compo !== null ? n.compo : null;
-
-    let pts = 0;
-    let div = 0;
-    if (d1 !== null) {
-      pts += d1;
-      div += 1;
-    }
-    if (d2 !== null) {
-      pts += d2;
-      div += 1;
-    }
-    if (comp !== null) {
-      pts += comp * 2;
-      div += 2;
-    }
-
-    const moyVal = div > 0 ? pts / div : null;
-    const coef = getSubjectCoefficient(n.matiere);
-    const pointsCoefVal = moyVal !== null ? moyVal * coef : null;
-
-    let app = 'En attente';
-    if (moyVal !== null) {
-      if (moyVal >= 16) app = 'Très Bien';
-      else if (moyVal >= 14) app = 'Bien';
-      else if (moyVal >= 12) app = 'Assez Bien';
-      else if (moyVal >= 10) app = 'Passable';
-      else app = 'Insuffisant';
-    }
-
-    return {
-      matiere: n.matiere,
-      coef,
-      devoir1: d1 !== null ? d1 : '—',
-      devoir2: d2 !== null ? d2 : '—',
-      compo: comp !== null ? comp : '—',
-      moyVal,
-      moyStr: moyVal !== null ? `${moyVal.toFixed(2)}/20` : '—',
-      pointsCoefVal,
-      pointsCoefStr: pointsCoefVal !== null ? pointsCoefVal.toFixed(2) : '—',
-      rangMatiere: '—',
-      app
-    };
-  });
-
-  // Calculate total coefficients and points
-  let totalCoef = 0;
-  let totalPoints = 0;
-  calculatedRows.forEach((r) => {
-    const c = r.coef || 1;
-    if (r.moyVal !== null && r.moyVal !== undefined) {
-      totalCoef += c;
-      totalPoints += r.moyVal * c;
-    }
-  });
-
-  const overallAverageVal = totalCoef > 0 ? totalPoints / totalCoef : null;
-  const overallAverageStr = overallAverageVal !== null ? `${overallAverageVal.toFixed(2)}/20` : '—';
-
-  // Overall mention
-  let overallMention = 'Non calculé';
-  if (overallAverageVal !== null) {
-    if (overallAverageVal >= 16) overallMention = 'EXCELLENT — TABLEAU D\'HONNEUR & FÉLICITATIONS';
-    else if (overallAverageVal >= 14) overallMention = 'TRÈS BIEN — TABLEAU D\'HONNEUR & ENCOURAGEMENTS';
-    else if (overallAverageVal >= 12) overallMention = 'BIEN — TABLEAU D\'HONNEUR';
-    else if (overallAverageVal >= 10) overallMention = 'PASSABLE — PEUT MIEUX FAIRE';
-    else overallMention = 'INSUFFISANT — TRAVAIL ET EFFORT À REVOIR';
-  }
-
-  // Class ranking calculation across class peers
-  const peerAverages: { studentId: string; avg: number }[] = [];
-  classPeers.forEach((peer) => {
-    const pNotes = notes.filter((n) => n.eleveId === peer.id && n.trimestre === selectedTrimestre);
-    let pPts = 0;
-    let pCoefs = 0;
-    pNotes.forEach((n) => {
-      const d1 = n.devoir1 !== null && n.devoir1 !== undefined ? n.devoir1 : null;
-      const d2 = n.devoir2 !== null && n.devoir2 !== undefined ? n.devoir2 : null;
-      const comp = n.compo !== null && n.compo !== undefined ? n.compo : null;
-      let sPts = 0;
-      let sDiv = 0;
-      if (d1 !== null) {
-        sPts += d1;
-        sDiv += 1;
-      }
-      if (d2 !== null) {
-        sPts += d2;
-        sDiv += 1;
-      }
-      if (comp !== null) {
-        sPts += comp * 2;
-        sDiv += 2;
-      }
-      if (sDiv > 0) {
-        const sMoy = sPts / sDiv;
-        const c = getSubjectCoefficient(n.matiere);
-        pPts += sMoy * c;
-        pCoefs += c;
-      }
-    });
-    if (pCoefs > 0) {
-      peerAverages.push({ studentId: peer.id, avg: pPts / pCoefs });
-    }
-  });
-
-  peerAverages.sort((a, b) => b.avg - a.avg);
-  const myIndex = peerAverages.findIndex((p) => p.studentId === student.id);
-  const classRank = myIndex !== -1 ? `${myIndex + 1}${myIndex === 0 ? 'er' : 'e'}` : '—';
-  const highestAverage = peerAverages.length > 0 ? `${peerAverages[0].avg.toFixed(2)}/20` : '—';
-  const lowestAverage =
-    peerAverages.length > 0 ? `${peerAverages[peerAverages.length - 1].avg.toFixed(2)}/20` : '—';
-  const classAvgNum =
-    peerAverages.length > 0 ? peerAverages.reduce((acc, p) => acc + p.avg, 0) / peerAverages.length : null;
-  const classAverage = classAvgNum !== null ? `${classAvgNum.toFixed(2)}/20` : '—';
-
-  const exportData: BulletinExportData = {
+  // Compute complete official bulletin data using the centralized calculation engine
+  const exportData: BulletinExportData = computeStudentBulletinData(
     student,
-    trimestre: selectedTrimestre,
-    anneeScolaire: '2025 - 2026',
-    rows: calculatedRows,
-    totalCoef: totalCoef > 0 ? totalCoef : calculatedRows.length,
-    totalPoints,
-    overallAverageVal,
-    overallAverageStr,
-    overallMention,
-    classRank,
-    classSize,
-    classAverage,
-    highestAverage,
-    lowestAverage,
-    absencesCount,
-    retardsCount,
-    schoolName: 'AKPANY SCHOOL'
-  };
+    selectedTrimestre,
+    notes,
+    absences,
+    allStudents,
+    'AKPANY SCHOOL'
+  );
+
+  const calculatedRows = exportData.rows;
+  const totalCoef = exportData.totalCoef;
+  const totalPoints = exportData.totalPoints;
+  const overallAverageStr = exportData.overallAverageStr;
+  const overallMention = exportData.overallMention;
+  const classRank = exportData.classRank;
+  const classSize = exportData.classSize;
+  const classAverage = exportData.classAverage;
+  const highestAverage = exportData.highestAverage;
+  const lowestAverage = exportData.lowestAverage;
+  const absencesCount = exportData.absencesCount;
+  const retardsCount = exportData.retardsCount;
 
   const handleDownloadPDF = () => {
     try {

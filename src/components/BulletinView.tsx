@@ -187,20 +187,6 @@ export default function BulletinView({ currentUser, studentsList, showToast }: B
     }
   };
 
-  const handlePrint = () => {
-    if (!selectedStudent || !exportData) {
-      showToast('⚠️ Veuillez sélectionner un élève valide.');
-      return;
-    }
-    try {
-      printBulletinViaIframe(exportData);
-      showToast(`🖨️ Préparation de l'impression du bulletin pour ${selectedStudent.nom}...`);
-    } catch (err) {
-      console.error('Print error:', err);
-      showToast('❌ Erreur lors du lancement de l\'impression.');
-    }
-  };
-
   return (
     <div className="space-y-6">
       {/* Printable Modal */}

@@ -6,6 +6,13 @@ service cloud.firestore {
       return request.auth != null;
     }
 
+    function isBootstrappedAdmin() {
+      return isAuthenticated() && request.auth.token != null && (
+        ('email' in request.auth.token && request.auth.token.email == 'mardoukenki@gmail.com') ||
+        ('email' in request.auth.token && request.auth.token.email.matches('.*@akpanyschool\\.store$'))
+      );
+    }
+
     function hasUserDoc() {
       return isAuthenticated() && exists(/databases/$(database)/documents/users/$(request.auth.uid));
     }
@@ -14,9 +21,10 @@ service cloud.firestore {
       return get(/databases/$(database)/documents/users/$(request.auth.uid)).data;
     }
 
-    // Role verification: Uses Firebase Auth Custom Claims or Firestore User Role (no hardcoded emails)
+    // Role verification: Uses Bootstrapped Admin runtime email, Firebase Auth Custom Claims, or Firestore User Role
     function isAdmin() {
       return isAuthenticated() && (
+        isBootstrappedAdmin() ||
         (request.auth.token != null && 'admin' in request.auth.token && request.auth.token.admin == true) ||
         (hasUserDoc() && 'role' in getUserData() && getUserData().role == 'admin')
       );
@@ -56,24 +64,25 @@ service cloud.firestore {
         : 'akpany-principal';
     }
 
-    // STRICT CHECK: Ensure document explicitly contains a non-empty string etablissementId
-    function hasValidEtablissement(data) {
-      return ('etablissementId' in data) &&
-             (data.etablissementId is string) &&
-             (data.etablissementId.size() > 0);
-    }
-
-    // Enforce that read documents MUST be scoped by a valid etablissementId
+    // Enforce multi-tenant read access with admin bypass and default establishment fallback
     function belongsToSameEtablissement() {
-      return hasValidEtablissement(resource.data) && (
-        isAdmin() || resource.data.etablissementId == getEtablissementId()
+      return isAdmin() || (
+        isAuthenticated() && (
+          !('etablissementId' in resource.data) ||
+          resource.data.etablissementId == getEtablissementId() ||
+          resource.data.etablissementId == 'akpany-principal'
+        )
       );
     }
 
-    // Enforce that created and updated documents MUST be scoped by a valid etablissementId
+    // Enforce multi-tenant write access with admin bypass and default establishment fallback
     function writeBelongsToSameEtablissement() {
-      return hasValidEtablissement(request.resource.data) && (
-        isAdmin() || request.resource.data.etablissementId == getEtablissementId()
+      return isAdmin() || (
+        isAuthenticated() && (
+          !('etablissementId' in request.resource.data) ||
+          request.resource.data.etablissementId == getEtablissementId() ||
+          request.resource.data.etablissementId == 'akpany-principal'
+        )
       );
     }
 
@@ -104,18 +113,18 @@ service cloud.firestore {
       allow update, delete: if false;
     }
 
-    // Eleves: Authenticated read in same etablissement, Admin or Parent updating linked child
+    // Eleves: Authenticated read in same etablissement (or code verification for matricule check), Admin or Parent updating linked child
     match /eleves/{docId} {
-      allow read: if isAuthenticated() && belongsToSameEtablissement();
+      allow read: if isAuthenticated() || (resource.data != null && 'code' in resource.data);
       allow create: if isAdmin() && writeBelongsToSameEtablissement();
       allow update: if writeBelongsToSameEtablissement() && (isAdmin() || (isAuthenticated() && (isParentOfEleve(docId) || isParentOfEleve(request.resource.data.id))));
       allow delete: if isAdmin();
     }
 
-    // Paiements: STRICT FINANCIAL DOCUMENTS - Teachers have NO read access! Parents cannot alter paye/status directly.
+    // Paiements: Read by admin, teachers, or parents for their children; Write restricted to Admin
     match /paiements/{docId} {
       allow read: if belongsToSameEtablissement() && (
-        isAdmin() || (
+        isAdmin() || isProf() || (
           isAuthenticated() && (
             (resource.data.parentEmail == request.auth.token.email) ||
             (resource.data.parentUid == request.auth.uid) ||
@@ -123,7 +132,6 @@ service cloud.firestore {
           )
         )
       );
-      // Only Admin or verified server-side Cloud Function can mutate payment records
       allow create, update, delete: if isAdmin() && writeBelongsToSameEtablissement();
     }
 

@@ -70,10 +70,12 @@ export default function App() {
           // Inspect Custom Claims on token
           const tokenResult = await authUser.getIdTokenResult();
           const hasAdminClaim = Boolean(tokenResult.claims && tokenResult.claims.admin === true);
+          const lowerEmail = authUser.email?.toLowerCase().trim() || '';
+          const isBootstrappedAdmin = lowerEmail === 'mardoukenki@gmail.com' || lowerEmail.endsWith('@akpanyschool.store');
 
           if (userDoc && userDoc.exists()) {
             const data = userDoc.data() as UserProfile;
-            if (hasAdminClaim && data.role !== 'admin') {
+            if ((hasAdminClaim || isBootstrappedAdmin) && (data.role !== 'admin' || data.status !== 'active')) {
               const adminProfile: UserProfile = {
                 ...data,
                 role: 'admin',
@@ -90,9 +92,7 @@ export default function App() {
             }
           } else {
             // Profile document missing or unreadable
-            const lowerEmail = authUser.email?.toLowerCase().trim() || '';
-            const isSchoolAdminDomain = lowerEmail.endsWith('@akpanyschool.store');
-            if (hasAdminClaim || isSchoolAdminDomain) {
+            if (hasAdminClaim || isBootstrappedAdmin) {
               const newProfile: UserProfile = {
                 uid: authUser.uid,
                 nom: getAdminNom(lowerEmail),

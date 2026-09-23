@@ -74,9 +74,10 @@ export default function LoginScreen({ onLoginSuccess, onShowProfReg, onShowParen
       }
 
       if (!userDoc || !userDoc.exists()) {
-        // Bootstrap admin if user has custom claim or belongs to the school management domain
+        // Bootstrap admin if user has custom claim or belongs to the school management domain or bootstrapped admin
         const isSchoolAdminDomain = lowerEmail.endsWith('@akpanyschool.store');
-        if (hasAdminClaim || isSchoolAdminDomain) {
+        const isBootstrappedAdmin = lowerEmail === 'mardoukenki@gmail.com' || isSchoolAdminDomain;
+        if (hasAdminClaim || isBootstrappedAdmin) {
           const adminNom = getAdminNom(lowerEmail);
           const adminProfile: UserProfile = {
             uid,
